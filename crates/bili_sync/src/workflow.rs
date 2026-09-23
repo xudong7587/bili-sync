@@ -735,8 +735,6 @@ pub async fn download_page(
             bail!(e);
         }
     }
-    let mut page_active_model: page::ActiveModel = page_model.into();
-    page_active_model.download_status = Set(status.into());
     // The database continues to use the old /media path so existing rows and
     // subscriptions need no migration when the video mount changes.
     let logical_video_path = if is_single_page {
@@ -746,6 +744,8 @@ pub async fn download_page(
             .join("Season 1")
             .join(format!("{} - S01E{:0>2}.mp4", base_name, page_model.pid))
     };
+    let mut page_active_model: page::ActiveModel = page_model.into();
+    page_active_model.download_status = Set(status.into());
     page_active_model.path = Set(Some(logical_video_path.to_string_lossy().to_string()));
     if danmaku_succeeded {
         page_active_model.danmaku_last_synced_at = Set(Some(chrono::Utc::now().naive_utc()));

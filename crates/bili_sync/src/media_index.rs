@@ -27,7 +27,7 @@ impl Webhook {
         if url.is_empty() || token.is_empty() {
             bail!("MediaIndex Webhook 地址和令牌必须同时填写");
         }
-        let parsed = reqwest::Url::parse(&url).context("invalid MediaIndex webhook URL")?;
+        let parsed = reqwest::Url::parse(url).context("invalid MediaIndex webhook URL")?;
         if !matches!(parsed.scheme(), "http" | "https") {
             bail!("MediaIndex webhook URL must use HTTP or HTTPS");
         }

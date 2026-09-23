@@ -514,7 +514,7 @@ pub async fn dispatch_download_page(
                 let status: [u32; 5] = PageStatus::from(*model.download_status.as_ref()).into();
                 status[1] == STATUS_OK
             };
-            Ok((model, video_was_pending && video_succeeded))
+            Ok::<_, anyhow::Error>((model, video_was_pending && video_succeeded))
         })
         .buffer_unordered(cx.config.concurrent_limit.page);
     let (mut risk_control_related_error, mut target_status) = (None, STATUS_OK);

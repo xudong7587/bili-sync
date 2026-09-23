@@ -1,6 +1,6 @@
 use std::collections::HashSet;
+use std::path::Path as FsPath;
 use std::sync::Arc;
-use std::path::Path;
 
 use anyhow::{Context, Result};
 use axum::extract::{Extension, Path, Query};
@@ -29,8 +29,8 @@ use crate::api::response::{
 use crate::api::wrapper::{ApiError, ApiResponse, ValidatedJson};
 use crate::bilibili::{BiliClient, Collection, CollectionItem, FavoriteList, Submission};
 use crate::config::{PathSafeTemplate, TEMPLATE, VersionedConfig};
-use crate::utils::rule::FieldEvaluatable;
 use crate::storage::remove_video_files;
+use crate::utils::rule::FieldEvaluatable;
 
 pub(super) fn router() -> Router {
     Router::new()
@@ -437,7 +437,7 @@ pub async fn full_sync_video_source(
                     None
                 } else {
                     Some(async move {
-                        remove_video_files(Path::new(&path))
+                        remove_video_files(FsPath::new(&path))
                             .await
                             .with_context(|| format!("failed to remove {path}"))?;
                         Result::<_, anyhow::Error>::Ok(())

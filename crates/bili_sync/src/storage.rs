@@ -32,13 +32,16 @@ impl StorageLayout {
         if media_root.starts_with(&metadata_root) || metadata_root.starts_with(&media_root) {
             bail!("media and metadata roots must not overlap");
         }
-        Ok(Some(Self { media_root, metadata_root }))
+        Ok(Some(Self {
+            media_root,
+            metadata_root,
+        }))
     }
 
     pub fn metadata_path(&self, media_path: &Path) -> Result<PathBuf> {
-        let relative = media_path.strip_prefix(&self.media_root).with_context(|| {
-            format!("media path {} is outside BILI_SYNC_MEDIA_ROOT", media_path.display())
-        })?;
+        let relative = media_path
+            .strip_prefix(&self.media_root)
+            .with_context(|| format!("media path {} is outside BILI_SYNC_MEDIA_ROOT", media_path.display()))?;
         if relative.as_os_str().is_empty() {
             bail!("refusing to use the metadata root as a video directory");
         }
@@ -84,7 +87,9 @@ mod tests {
             metadata_root: PathBuf::from("/metadata"),
         };
         assert_eq!(
-            layout.metadata_path(Path::new("/media/earth/BV1/Season 1/BV1.mp4")).unwrap(),
+            layout
+                .metadata_path(Path::new("/media/earth/BV1/Season 1/BV1.mp4"))
+                .unwrap(),
             PathBuf::from("/metadata/earth/BV1/Season 1/BV1.mp4")
         );
         assert!(layout.metadata_path(Path::new("/other/BV1.mp4")).is_err());

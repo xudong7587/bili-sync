@@ -742,7 +742,9 @@ pub async fn download_page(
     let logical_video_path = if is_single_page {
         base_path.join(format!("{}.mp4", base_name))
     } else {
-        base_path.join("Season 1").join(format!("{} - S01E{:0>2}.mp4", base_name, page_model.pid))
+        base_path
+            .join("Season 1")
+            .join(format!("{} - S01E{:0>2}.mp4", base_name, page_model.pid))
     };
     page_active_model.path = Set(Some(logical_video_path.to_string_lossy().to_string()));
     if danmaku_succeeded {

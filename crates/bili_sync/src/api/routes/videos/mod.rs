@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::path::Path;
 
 use anyhow::{Context, Result};
 use axum::extract::{Extension, Path, Query};
@@ -26,6 +27,7 @@ use crate::api::response::{
 };
 use crate::api::wrapper::{ApiError, ApiResponse, ValidatedJson};
 use crate::utils::status::{PageStatus, VideoStatus};
+use crate::storage::remove_video_files;
 
 pub(super) fn router() -> Router {
     Router::new()
@@ -211,7 +213,7 @@ pub async fn clear_and_reset_video_status(
     let warning = if video_info.path.is_empty() {
         None
     } else {
-        tokio::fs::remove_dir_all(&video_info.path)
+        remove_video_files(Path::new(&video_info.path))
             .await
             .context(format!("删除本地路径「{}」失败", video_info.path))
             .err()

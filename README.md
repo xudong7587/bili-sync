@@ -7,6 +7,8 @@
 
 bili-sync 是一款专为 NAS 用户编写的哔哩哔哩同步工具，由 Rust & Tokio 驱动。
 
+自定义版本的[视频与元数据分离、MediaIndex 通知配置](./docs/split-storage-media-index.md)。
+
 ## 效果演示
 
 ### 管理页

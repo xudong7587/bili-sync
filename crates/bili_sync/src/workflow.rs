@@ -19,6 +19,7 @@ use crate::config::{ARGS, Config, PathSafeTemplate};
 use crate::downloader::Downloader;
 use crate::error::ExecutionStatus;
 use crate::notifier::DownloadNotifyInfo;
+use crate::storage::StorageLayout;
 use crate::utils::danmaku_schedule::should_sync_danmaku;
 use crate::utils::download_context::DownloadContext;
 use crate::utils::format_arg::{page_format_args, video_format_args};
@@ -48,6 +49,9 @@ pub async fn process_video_source(
     template: &handlebars::Handlebars<'_>,
     config: &Config,
 ) -> Result<()> {
+    if let Err(error) = crate::media_index::flush_pending().await {
+        warn!("重试 MediaIndex 入库通知失败：{error:#}");
+    }
     // 预创建视频源目录，提前检测目录是否可写
     video_source.create_dir_all().await?;
     // 从参数中获取视频列表的 Model 与视频流
@@ -75,6 +79,9 @@ pub async fn process_video_source(
         .await?;
         if download_notify_info.should_notify() {
             notify(config, bili_client, download_notify_info);
+        }
+        if let Err(error) = crate::media_index::flush_pending().await {
+            warn!("发送 MediaIndex 入库通知失败，将在下轮重试：{error:#}");
         }
     }
     Ok(())
@@ -399,6 +406,8 @@ pub async fn download_video_pages(
     fs::create_dir_all(&base_path).await?;
 
     let base_path = dunce::canonicalize(base_path).context("canonicalize video path failed")?;
+    let metadata_base_path = StorageLayout::metadata_path_for(&base_path)?;
+    fs::create_dir_all(&metadata_base_path).await?;
     let is_single_page = video_model.single_page.context("single_page is null")?;
     let uppers_with_path = video_model
         .uppers()
@@ -424,15 +433,15 @@ pub async fn download_video_pages(
         fetch_video_poster(
             separate_status[0] && !is_single_page && !cx.config.skip_option.no_poster,
             &video_model,
-            base_path.join("poster.jpg"),
-            base_path.join("fanart.jpg"),
+            metadata_base_path.join("poster.jpg"),
+            metadata_base_path.join("fanart.jpg"),
             cx
         ),
         // 生成视频信息的 nfo
         generate_video_nfo(
             separate_status[1] && !is_single_page && !cx.config.skip_option.no_video_nfo,
             &video_model,
-            base_path.join("tvshow.nfo"),
+            metadata_base_path.join("tvshow.nfo"),
             cx
         ),
         // 下载 Up 主头像
@@ -498,13 +507,21 @@ pub async fn dispatch_download_page(
         return Ok(ExecutionStatus::Skipped);
     }
     let tasks = stream::iter(page_models)
-        .map(|page_model| download_page(video_model, page_model, base_path, cx))
+        .map(|page_model| async move {
+            let video_was_pending = PageStatus::from(page_model.download_status).should_run()[1];
+            let model = download_page(video_model, page_model, base_path, cx).await?;
+            let video_succeeded = {
+                let status: [u32; 5] = PageStatus::from(*model.download_status.as_ref()).into();
+                status[1] == STATUS_OK
+            };
+            Ok((model, video_was_pending && video_succeeded))
+        })
         .buffer_unordered(cx.config.concurrent_limit.page);
     let (mut risk_control_related_error, mut target_status) = (None, STATUS_OK);
     let mut stream = tasks
         .take_while(|res| {
             match res {
-                Ok(model) => {
+                Ok((model, _)) => {
                     // 该视频的所有分页的下载状态都会在此返回，需要根据这些状态确认视频层“分页下载”子任务的状态
                     // 在过去的实现中，此处仅仅根据 page_download_status 的最高标志位来判断，如果最高标志位是 true 则认为完成
                     // 这样会导致即使分页中有失败到 MAX_RETRY 的情况，视频层的分页下载状态也会被认为是 Succeeded，不够准确
@@ -529,7 +546,11 @@ pub async fn dispatch_download_page(
         .filter_map(|res| futures::future::ready(res.ok()))
         .chunks(10);
     while let Some(models) = stream.next().await {
-        update_pages_model(models, cx.connection).await?;
+        let (page_models, new_video_flags): (Vec<_>, Vec<_>) = models.into_iter().unzip();
+        update_pages_model(page_models, cx.connection).await?;
+        if new_video_flags.into_iter().any(|downloaded| downloaded) {
+            crate::media_index::mark_pending().await?;
+        }
     }
     if let Some(e) = risk_control_related_error {
         bail!(e);
@@ -587,32 +608,37 @@ pub async fn download_page(
         )
     };
     let base_path = dunce::canonicalize(base_path).context("canonicalize base path failed")?;
+    let metadata_base_path = StorageLayout::metadata_path_for(&base_path)?;
+    fs::create_dir_all(&metadata_base_path).await?;
+    if !is_single_page {
+        fs::create_dir_all(metadata_base_path.join("Season 1")).await?;
+    }
     let (poster_path, video_path, nfo_path, danmaku_path, fanart_path, subtitle_path) = if is_single_page {
         (
-            base_path.join(format!("{}-poster.jpg", base_name)),
+            metadata_base_path.join(format!("{}-poster.jpg", base_name)),
             base_path.join(format!("{}.mp4", base_name)),
-            base_path.join(format!("{}.nfo", base_name)),
-            base_path.join(format!("{}.zh-CN.default.ass", base_name)),
-            Some(base_path.join(format!("{}-fanart.jpg", base_name))),
-            base_path.join(format!("{}.srt", base_name)),
+            metadata_base_path.join(format!("{}.nfo", base_name)),
+            metadata_base_path.join(format!("{}.zh-CN.default.ass", base_name)),
+            Some(metadata_base_path.join(format!("{}-fanart.jpg", base_name))),
+            metadata_base_path.join(format!("{}.srt", base_name)),
         )
     } else {
         (
-            base_path
+            metadata_base_path
                 .join("Season 1")
                 .join(format!("{} - S01E{:0>2}-thumb.jpg", base_name, page_model.pid)),
             base_path
                 .join("Season 1")
                 .join(format!("{} - S01E{:0>2}.mp4", base_name, page_model.pid)),
-            base_path
+            metadata_base_path
                 .join("Season 1")
                 .join(format!("{} - S01E{:0>2}.nfo", base_name, page_model.pid)),
-            base_path
+            metadata_base_path
                 .join("Season 1")
                 .join(format!("{} - S01E{:0>2}.zh-CN.default.ass", base_name, page_model.pid)),
             // 对于多页视频，会在上一步 fetch_video_poster 中获取剧集的 fanart，无需在此处下载单集的
             None,
-            base_path
+            metadata_base_path
                 .join("Season 1")
                 .join(format!("{} - S01E{:0>2}.srt", base_name, page_model.pid)),
         )

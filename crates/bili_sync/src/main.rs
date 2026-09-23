@@ -107,8 +107,6 @@ async fn init() -> Result<(Arc<BiliClient>, DatabaseConnection, LogHelper)> {
     }
 
     storage::StorageLayout::from_env().context("媒体与元数据目录配置无效")?;
-    media_index::validate().context("MediaIndex Webhook 配置无效")?;
-
     let connection = setup_database(&CONFIG_DIR.join("data.sqlite"))
         .await
         .context("数据库初始化失败")?;

@@ -17,13 +17,11 @@ services:
     environment:
       BILI_SYNC_METADATA_ROOT: /media
       BILI_SYNC_VIDEO_ROOT: /video
-      BILI_SYNC_MEDIA_INDEX_WEBHOOK_URL: http://media-index:8000/api/webhooks/bili-sync
-      BILI_SYNC_MEDIA_INDEX_WEBHOOK_TOKEN: ${BILI_SYNC_MEDIA_INDEX_WEBHOOK_TOKEN}
 ```
 
 视频源在 bili-sync 中仍填写 `/media/...`，不用修改旧订阅。例如数据库中的 `/media/earth/视频/BV1.mp4` 对应实际视频 `/video/earth/视频/BV1.mp4` 和本地元数据 `/media/earth/视频/BV1.nfo`。MediaIndex 应以 `/媒体库` 为来源根、勾选 `/媒体库/08bilibili`，输出根为本地 STRM 目录，这样生成的 STRM 才会与 NFO 同目录。Emby 扫描本地 STRM 目录。
 
-Webhook URL 和 Token 由 MediaIndex 中该入站连接提供。下载成功后，bili-sync 发送 `POST`、`Authorization: Bearer <token>` 请求头和 `{"event":"finished"}`；失败时在配置目录保存待通知标记，下次下载轮次重试。MediaIndex 返回 2xx 只表示接受任务，实际 STRM 生成结果仍应在 MediaIndex 任务中心核对。
+在 bili-sync 的「设置 → 通知设置 → MediaIndex 入库通知」中粘贴 MediaIndex 入站连接的 Webhook 地址和令牌，保存后立即生效，无需修改 compose。下载成功后，bili-sync 发送 `POST`、`Authorization: Bearer <token>` 请求头和 `{"event":"finished"}`；失败时在配置目录保存待通知标记，下次下载轮次重试。MediaIndex 返回 2xx 只表示接受任务，实际 STRM 生成结果仍应在 MediaIndex 任务中心核对。
 
 ### 现有文件
 

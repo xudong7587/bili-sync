@@ -360,6 +360,8 @@ export interface Config {
 	page_name: string;
 	notifiers: Notifier[] | null;
 	ignore_common_errors: boolean;
+	media_index_webhook_url: string;
+	media_index_webhook_token: string;
 	favorite_default_path: string;
 	collection_default_path: string;
 	submission_default_path: string;

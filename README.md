@@ -11,14 +11,14 @@
 
 ## Docker Compose
 
-仓库根目录提供 [docker-compose.yaml](./docker-compose.yaml)，对应当前 NAS 的部署方式。使用前检查宿主机路径、用户/用户组 ID 和镜像标签；尤其要将原有配置目录继续映射到 `/app/.config/bili-sync`：
+仓库根目录提供带注释的通用示例 [docker-compose.yaml](./docker-compose.yaml)。部署前将其中三个 `/path/to/...` 宿主机路径替换成自己的目录，并检查端口、镜像标签和可选的用户 ID。升级已有实例时，务必将原配置目录继续映射到 `/app/.config/bili-sync`：
 
 | 容器路径 | 用途 |
 | --- | --- |
 | `/app/.config/bili-sync` | 原有配置和数据库 |
 | `/media` | 本地元数据目录 |
-| `/video` | CD2 挂载的网盘视频目录 |
-| `/upper` | 原有 UP 主头像目录 |
+| `/video` | 视频存储目录，可映射到 CD2 等工具挂载的网盘 |
+| 原配置中的 UP 主头像路径 | 如原实例单独映射过，请沿用原映射 |
 
 ```bash
 docker compose -f docker-compose.yaml up -d

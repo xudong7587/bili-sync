@@ -406,8 +406,9 @@ pub async fn download_video_pages(
     fs::create_dir_all(&base_path).await?;
 
     let base_path = dunce::canonicalize(base_path).context("canonicalize video path failed")?;
-    let metadata_base_path = StorageLayout::metadata_path_for(&base_path)?;
-    fs::create_dir_all(&metadata_base_path).await?;
+    let metadata_base_path = base_path.clone();
+    let video_base_path = StorageLayout::video_path_for(&base_path)?;
+    fs::create_dir_all(&video_base_path).await?;
     let is_single_page = video_model.single_page.context("single_page is null")?;
     let uppers_with_path = video_model
         .uppers()
@@ -611,15 +612,17 @@ pub async fn download_page(
         )
     };
     let base_path = dunce::canonicalize(base_path).context("canonicalize base path failed")?;
-    let metadata_base_path = StorageLayout::metadata_path_for(&base_path)?;
-    fs::create_dir_all(&metadata_base_path).await?;
+    let metadata_base_path = base_path.to_path_buf();
+    let video_base_path = StorageLayout::video_path_for(&base_path)?;
+    fs::create_dir_all(&video_base_path).await?;
     if !is_single_page {
         fs::create_dir_all(metadata_base_path.join("Season 1")).await?;
+        fs::create_dir_all(video_base_path.join("Season 1")).await?;
     }
     let (poster_path, video_path, nfo_path, danmaku_path, fanart_path, subtitle_path) = if is_single_page {
         (
             metadata_base_path.join(format!("{}-poster.jpg", base_name)),
-            base_path.join(format!("{}.mp4", base_name)),
+            video_base_path.join(format!("{}.mp4", base_name)),
             metadata_base_path.join(format!("{}.nfo", base_name)),
             metadata_base_path.join(format!("{}.zh-CN.default.ass", base_name)),
             Some(metadata_base_path.join(format!("{}-fanart.jpg", base_name))),
@@ -630,7 +633,7 @@ pub async fn download_page(
             metadata_base_path
                 .join("Season 1")
                 .join(format!("{} - S01E{:0>2}-thumb.jpg", base_name, page_model.pid)),
-            base_path
+            video_base_path
                 .join("Season 1")
                 .join(format!("{} - S01E{:0>2}.mp4", base_name, page_model.pid)),
             metadata_base_path
@@ -734,7 +737,14 @@ pub async fn download_page(
     }
     let mut page_active_model: page::ActiveModel = page_model.into();
     page_active_model.download_status = Set(status.into());
-    page_active_model.path = Set(Some(video_path.to_string_lossy().to_string()));
+    // The database continues to use the old /media path so existing rows and
+    // subscriptions need no migration when the video mount changes.
+    let logical_video_path = if is_single_page {
+        base_path.join(format!("{}.mp4", base_name))
+    } else {
+        base_path.join("Season 1").join(format!("{} - S01E{:0>2}.mp4", base_name, page_model.pid))
+    };
+    page_active_model.path = Set(Some(logical_video_path.to_string_lossy().to_string()));
     if danmaku_succeeded {
         page_active_model.danmaku_last_synced_at = Set(Some(chrono::Utc::now().naive_utc()));
     }

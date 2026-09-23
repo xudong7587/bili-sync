@@ -67,6 +67,7 @@ pub async fn flush_pending() -> Result<()> {
     client
         .post(&webhook.url)
         .header("X-MediaIndex-Webhook", &webhook.token)
+        .bearer_auth(&webhook.token)
         .json(&serde_json::json!({ "event": "finished" }))
         .send()
         .await?

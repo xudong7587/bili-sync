@@ -1,0 +1,30 @@
+version: '3.8'
+services:
+  bili_sync_rs:
+    container_name: bili-sync-rs
+    image: ghcr.io/xudong7587/bili-sync:bili115-2026.09.23.2
+    restart: always
+    environment:
+      RUST_LOG: None,bili_sync
+      PUID: '1000'
+      UID: '1000'
+      USER_ID: '1000'
+      PGID: '10'
+      GID: '10'
+      GROUP_ID: '10'
+      LANG: zh_CN.UTF-8
+      TZ: Asia/Shanghai
+      HOME: /app
+      RUST_BACKTRACE: '1'
+      BILI_SYNC_METADATA_ROOT: /media
+      BILI_SYNC_VIDEO_ROOT: /video
+    volumes:
+      - /volume2/docker/bili-sync-rs/config:/app/.config/bili-sync
+      - /volume1/V1 Media/Strm/08Bilibili:/media
+      - /volume2/cloud/115/媒体库/08Bilibili:/video
+      - /volume2/docker/emby/config/metadata/people:/upper
+    network_mode: host
+    privileged: true
+    devices:
+      - /dev/dri:/dev/dri:rwm
+    entrypoint: /app/bili-sync-rs

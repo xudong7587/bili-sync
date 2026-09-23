@@ -1,50 +1,29 @@
-![bili-sync](https://socialify.git.ci/amtoaer/bili-sync/image?description=1&font=KoHo&issues=1&language=1&logo=https%3A%2F%2Fs2.loli.net%2F2023%2F12%2F02%2F9EwT2yInOu1d3zm.png&name=1&owner=1&pattern=Signal&pulls=1&stargazers=1&theme=Light)
+# bili-sync：视频与元数据分离版
 
-## 简介
+这是基于 [amtoaer/bili-sync](https://github.com/amtoaer/bili-sync) 的个人分支，保留原有的收藏夹订阅、追更和管理页面，并增加适合 NAS 的分离存储方式。
 
-> [!NOTE]
-> [查看文档](https://bili-sync.amto.cc/) ｜ [加入 Telegram 交流群](https://t.me/+nuYrt8q6uEo4MWI1)
+## 这个分支增加了什么
 
-bili-sync 是一款专为 NAS 用户编写的哔哩哔哩同步工具，由 Rust & Tokio 驱动。
+- **视频单独存储**：新下载的 MP4 写入 `/video`，可映射到 CD2 挂载的网盘目录。
+- **元数据留在本地**：NFO、海报、字幕、弹幕等写入 `/media`，与视频保持相同的相对目录结构，供 Emby 读取。
+- **兼容原配置**：视频源路径仍使用 `/media/...`；复用原有配置目录后，`config.toml`、数据库和订阅设置无需重建。启用分离不会自动搬迁以前下载的文件。
+- **可联动 [MediaIndex](https://github.com/xudong7587/media-index)**：下载完成后发送入库通知，由 MediaIndex 扫描网盘目录、生成 STRM，并刷新 Emby。Webhook 地址和令牌在 bili-sync 管理页的「设置 → 通知设置 → MediaIndex 入库通知」中填写。
 
-自定义版本的[视频与元数据分离、MediaIndex 通知配置](./docs/split-storage-media-index.md)。
+## Docker Compose
 
-## 效果演示
+仓库根目录提供 [docker-compose.yaml](./docker-compose.yaml)，对应当前 NAS 的部署方式。使用前检查宿主机路径、用户/用户组 ID 和镜像标签；尤其要将原有配置目录继续映射到 `/app/.config/bili-sync`：
 
-### 管理页
-![管理页](./assets/webui.webp)
-### 媒体库概览
-![媒体库概览](./assets/overview.webp)
-### 媒体库详情
-![媒体库详情](./assets/detail.webp)
-### 播放（使用 infuse）
-![播放](./assets/play.webp)
-### 文件排布
-![文件](./assets/dir.webp)
+| 容器路径 | 用途 |
+| --- | --- |
+| `/app/.config/bili-sync` | 原有配置和数据库 |
+| `/media` | 本地元数据目录 |
+| `/video` | CD2 挂载的网盘视频目录 |
+| `/upper` | 原有 UP 主头像目录 |
 
+```bash
+docker compose -f docker-compose.yaml up -d
+```
 
-## 功能与路线图
+现有视频源和追更路径不需要改为 `/video`。首次切换前请备份配置与元数据；已有视频对应的 NFO、图片等需要自行复制到新的本地 `/media` 目录。详细说明见 [视频与元数据分离](./docs/split-storage-media-index.md)。
 
-- [x] 使用用户填写的凭据认证，并在必要时自动刷新
-- [x] 支持收藏夹与视频列表/视频合集的下载
-- [x] 自动选择用户设置范围内最优的视频和音频流，并在下载完成后使用 FFmpeg 合并
-- [x] 使用 Tokio 与 Reqwest，对视频、视频分页进行异步并发下载
-- [x] 使用媒体服务器支持的文件命名，方便一键作为媒体库导入
-- [x] 当前轮次下载失败会在下一轮下载时重试，失败次数过多自动丢弃
-- [x] 使用数据库保存媒体信息，避免对同个视频的多次请求
-- [x] 打印日志，并在请求出现风控时自动终止，等待下一轮执行
-- [x] 提供多平台的二进制可执行文件，为 Linux 平台提供了立即可用的 Docker 镜像
-- [x] 支持对“稍后再看”内视频的自动扫描与下载
-- [x] 支持对 UP 主投稿视频的自动扫描与下载
-- [x] 支持限制任务的并行度和接口请求频率
-- [x] 支持单个文件的分块并行下载
-- [x] 支持使用 Web UI 配置，查看并管理视频、视频源
-
-
-## 参考与借鉴
-
-该项目实现过程中主要参考借鉴了如下的项目，感谢他们的贡献：
-
-+ [bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect) B 站的第三方接口文档
-+ [bilibili-api](https://github.com/Nemo2011/bilibili-api) 使用 Python 调用接口的参考实现
-+ [danmu2ass](https://github.com/gwy15/danmu2ass) 本项目弹幕下载功能的缝合来源
+上游使用说明和其他功能请参阅 [bili-sync 文档](https://bili-sync.amto.cc/)。本分支沿用上游 [License](./License)。

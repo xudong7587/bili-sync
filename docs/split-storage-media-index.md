@@ -4,22 +4,22 @@
 
 ## Docker 挂载与环境变量
 
-下面的 `08bilibili` 只是示例。它必须与你在 MediaIndex 中选择的 115 网盘子目录名称完全一致。
+仓库根目录提供当前 NAS 使用的完整 [docker-compose.yaml](../docker-compose.yaml)。下面的 `08Bilibili` 只是示例。它必须与你在 MediaIndex 中选择的 115 网盘子目录名称完全一致。
 
 ```yaml
 services:
   bili-sync-rs:
-    image: ghcr.io/xudong7587/bili-sync:dev
+    image: ghcr.io/xudong7587/bili-sync:bili115-2026.09.23.2
     volumes:
       - /path/to/bili-sync-config:/app/.config/bili-sync
-      - /path/to/local/strm/08bilibili:/media
-      - /path/to/cd2/媒体库/08bilibili:/video
+      - /path/to/local/strm/08Bilibili:/media
+      - /path/to/cd2/媒体库/08Bilibili:/video
     environment:
       BILI_SYNC_METADATA_ROOT: /media
       BILI_SYNC_VIDEO_ROOT: /video
 ```
 
-视频源在 bili-sync 中仍填写 `/media/...`，不用修改旧订阅。例如数据库中的 `/media/earth/视频/BV1.mp4` 对应实际视频 `/video/earth/视频/BV1.mp4` 和本地元数据 `/media/earth/视频/BV1.nfo`。MediaIndex 应以 `/媒体库` 为来源根、勾选 `/媒体库/08bilibili`，输出根为本地 STRM 目录，这样生成的 STRM 才会与 NFO 同目录。Emby 扫描本地 STRM 目录。
+视频源在 bili-sync 中仍填写 `/media/...`，不用修改旧订阅。例如数据库中的 `/media/earth/视频/BV1.mp4` 对应实际视频 `/video/earth/视频/BV1.mp4` 和本地元数据 `/media/earth/视频/BV1.nfo`。MediaIndex 应以 `/媒体库` 为来源根、勾选 `/媒体库/08Bilibili`，输出根为本地 STRM 目录，这样生成的 STRM 才会与 NFO 同目录。Emby 扫描本地 STRM 目录。
 
 在 bili-sync 的「设置 → 通知设置 → MediaIndex 入库通知」中粘贴 MediaIndex 入站连接的 Webhook 地址和令牌，保存后立即生效，无需修改 compose。下载成功后，bili-sync 发送 `POST`、`Authorization: Bearer <token>` 请求头和 `{"event":"finished"}`；失败时在配置目录保存待通知标记，下次下载轮次重试。MediaIndex 返回 2xx 只表示接受任务，实际 STRM 生成结果仍应在 MediaIndex 任务中心核对。
 

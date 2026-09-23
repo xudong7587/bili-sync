@@ -799,6 +799,33 @@
 
 					<Separator />
 
+					<div class="space-y-4">
+						<div>
+							<h3 class="text-lg font-semibold">MediaIndex 入库通知</h3>
+							<p class="text-muted-foreground text-sm">
+								视频下载完成后通知 MediaIndex 扫描预先指定的目录。地址和令牌均留空可关闭通知。
+							</p>
+						</div>
+						<div class="space-y-2">
+							<Label for="media-index-webhook-url">Webhook 地址</Label>
+							<Input
+								id="media-index-webhook-url"
+								placeholder="https://media.example.com/api/webhooks/..."
+								bind:value={formData.media_index_webhook_url}
+							/>
+						</div>
+						<div class="space-y-2">
+							<Label for="media-index-webhook-token">Webhook 令牌</Label>
+							<PasswordInput
+								id="media-index-webhook-token"
+								placeholder="粘贴 MediaIndex 入站连接的令牌"
+								bind:value={formData.media_index_webhook_token}
+							/>
+						</div>
+					</div>
+
+					<Separator />
+
 					<div class="flex items-center justify-between rounded-lg border p-4">
 						<div class="space-y-1">
 							<Label for="ignore-common-errors">忽略常见错误</Label>

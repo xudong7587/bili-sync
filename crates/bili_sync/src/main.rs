@@ -8,7 +8,9 @@ mod config;
 mod database;
 mod downloader;
 mod error;
+mod media_index;
 mod notifier;
+mod storage;
 mod task;
 mod utils;
 mod workflow;
@@ -104,6 +106,7 @@ async fn init() -> Result<(Arc<BiliClient>, DatabaseConnection, LogHelper)> {
         bail!("ffmpeg 不存在或无法执行，请确保已正确安装 ffmpeg，并且 {ffmpeg_path} 命令可用");
     }
 
+    storage::StorageLayout::from_env().context("媒体与元数据目录配置无效")?;
     let connection = setup_database(&CONFIG_DIR.join("data.sqlite"))
         .await
         .context("数据库初始化失败")?;

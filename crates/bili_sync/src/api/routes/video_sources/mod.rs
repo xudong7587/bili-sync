@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::path::Path as FsPath;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -28,6 +29,7 @@ use crate::api::response::{
 use crate::api::wrapper::{ApiError, ApiResponse, ValidatedJson};
 use crate::bilibili::{BiliClient, Collection, CollectionItem, FavoriteList, Submission};
 use crate::config::{PathSafeTemplate, TEMPLATE, VersionedConfig};
+use crate::storage::remove_video_files;
 use crate::utils::rule::FieldEvaluatable;
 
 pub(super) fn router() -> Router {
@@ -435,7 +437,7 @@ pub async fn full_sync_video_source(
                     None
                 } else {
                     Some(async move {
-                        tokio::fs::remove_dir_all(&path)
+                        remove_video_files(FsPath::new(&path))
                             .await
                             .with_context(|| format!("failed to remove {path}"))?;
                         Result::<_, anyhow::Error>::Ok(())

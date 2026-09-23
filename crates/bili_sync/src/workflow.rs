@@ -550,6 +550,9 @@ pub async fn dispatch_download_page(
         update_pages_model(page_models, cx.connection).await?;
         if new_video_flags.into_iter().any(|downloaded| downloaded) {
             crate::media_index::mark_pending().await?;
+            if let Err(error) = crate::media_index::flush_pending().await {
+                warn!("发送 MediaIndex 入库通知失败，将在下轮重试：{error:#}");
+            }
         }
     }
     if let Some(e) = risk_control_related_error {

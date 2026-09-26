@@ -1,7 +1,7 @@
 services:
   bili-sync-rs:
     # 建议固定到已发布的版本；升级时修改此标签。
-    image: ghcr.io/xudong7587/bili-sync:bili115-2026.09.26.1
+    image: ghcr.io/xudong7587/bili-sync:bili115-2026.09.26.2
     container_name: bili-sync-rs
     restart: unless-stopped
 

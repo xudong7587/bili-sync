@@ -9,7 +9,7 @@
 ```yaml
 services:
   bili-sync-rs:
-    image: ghcr.io/xudong7587/bili-sync:bili115-2026.09.26.1
+    image: ghcr.io/xudong7587/bili-sync:bili115-2026.09.26.2
     volumes:
       - /path/to/bili-sync-config:/app/.config/bili-sync
       - /path/to/local-metadata:/media
@@ -24,6 +24,8 @@ services:
 在 bili-sync 的「设置 → 通知设置 → MediaIndex 入库通知」中粘贴 MediaIndex 入站连接的 Webhook 地址和令牌，保存后立即生效，无需修改 compose。下载成功后，bili-sync 发送 `POST`、`Authorization: Bearer <token>` 请求头和 `{"event":"finished"}`；失败时在配置目录保存待通知标记，下次下载轮次重试。MediaIndex 返回 2xx 只表示接受任务，实际 STRM 生成结果仍应在 MediaIndex 任务中心核对。
 
 ### CD2 API 直传 115
+
+保存路径相对于 API 令牌允许访问的根目录。如果令牌已经限定到 `/115open`，应填写 `/媒体库/08Bilibili`，不要重复添加 `/115open` 前缀。
 
 在「设置 → 通知设置 → CloudDrive2 直传 115」填写 CD2 地址、API 令牌和 CD2 内的保存根目录，例如 `/115/媒体库/08Bilibili`。三个字段必须同时填写；全部留空则继续使用 `/video` 挂载写入。直传时，bili-sync 先在容器临时目录下载、合并 MP4，再通过 CD2 API 分块写入 115，并等待 CD2 上传任务变为完成；确认文件大小后才更新分页下载状态和发送 MediaIndex 通知。CD2 上传失败或超时会保留未完成状态，供下轮重试。请给容器临时目录留出足够空间容纳正在处理的视频。
 

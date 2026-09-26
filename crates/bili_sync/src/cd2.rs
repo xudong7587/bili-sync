@@ -286,9 +286,28 @@ impl Cd2Client {
             "CD2 {method} HTTP 状态 {}",
             response.status()
         );
+        // CD2 can return trailers-only failures in HTTP headers, with an empty
+        // body and HTTP 200. Validate these before reading protobuf frames.
+        let header_status = response
+            .headers()
+            .get("grpc-status")
+            .map(|value| value.to_str())
+            .transpose()?;
+        if let Some(status) = header_status {
+            ensure!(
+                status.trim() == "0",
+                "CD2 {method} gRPC 状态 {status}：{}",
+                response
+                    .headers()
+                    .get("grpc-message")
+                    .and_then(|value| value.to_str().ok())
+                    .unwrap_or("无错误详情")
+            );
+        }
+        let header_success = header_status.is_some();
         let bytes = response.bytes().await?;
         ensure!(bytes.len() <= 32 * 1024 * 1024, "CD2 {method} 响应过大");
-        decode_frames::<Res>(&bytes)
+        decode_frames::<Res>(&bytes, header_success)
     }
 }
 
@@ -310,7 +329,7 @@ fn validate_remote_path(path: &str) -> Result<()> {
     Ok(())
 }
 
-fn decode_frames<T: Message + Default>(bytes: &[u8]) -> Result<Vec<T>> {
+fn decode_frames<T: Message + Default>(bytes: &[u8], header_success: bool) -> Result<Vec<T>> {
     let mut offset = 0;
     let mut values = Vec::new();
     let mut trailer = None;
@@ -329,13 +348,17 @@ fn decode_frames<T: Message + Default>(bytes: &[u8]) -> Result<Vec<T>> {
         }
     }
     ensure!(offset == bytes.len(), "CD2 gRPC-Web 响应末尾不完整");
-    let trailer = trailer.context("CD2 gRPC-Web 响应缺少状态")?;
-    ensure!(
-        trailer
+    if let Some(trailer) = trailer {
+        let statuses = trailer
             .lines()
-            .any(|line| line.trim().eq_ignore_ascii_case("grpc-status: 0")),
-        "CD2 API 返回错误：{trailer}"
-    );
+            .filter_map(|line| line.split_once(':'))
+            .filter(|(name, _)| name.trim().eq_ignore_ascii_case("grpc-status"))
+            .map(|(_, value)| value.trim())
+            .collect::<Vec<_>>();
+        ensure!(statuses.len() == 1 && statuses[0] == "0", "CD2 API 返回错误：{trailer}");
+    } else {
+        ensure!(header_success, "CD2 gRPC-Web 响应缺少状态");
+    }
     Ok(values)
 }
 
@@ -456,10 +479,20 @@ mod tests {
     }
     #[test]
     fn requires_success_trailer() {
-        let mut frame = vec![0x80, 0, 0, 0, 16];
-        frame.extend_from_slice(b"grpc-status: 0\r\n");
-        assert!(decode_frames::<CreateFileResult>(&frame).unwrap().is_empty());
-        assert!(decode_frames::<CreateFileResult>(&[]).is_err());
+        for trailer in ["grpc-status: 0\r\n", "grpc-status:0\r\n", "Grpc-Status:\t0\r\n"] {
+            let mut frame = vec![0x80];
+            frame.extend_from_slice(&(trailer.len() as u32).to_be_bytes());
+            frame.extend_from_slice(trailer.as_bytes());
+            assert!(decode_frames::<CreateFileResult>(&frame, false).unwrap().is_empty());
+        }
+        assert!(decode_frames::<CreateFileResult>(&[], false).is_err());
+        assert!(decode_frames::<CreateFileResult>(&[], true).unwrap().is_empty());
+        for trailer in ["grpc-status:5\r\n", "grpc-status:0\r\ngrpc-status:5\r\n"] {
+            let mut frame = vec![0x80];
+            frame.extend_from_slice(&(trailer.len() as u32).to_be_bytes());
+            frame.extend_from_slice(trailer.as_bytes());
+            assert!(decode_frames::<CreateFileResult>(&frame, true).is_err());
+        }
     }
 
     #[test]

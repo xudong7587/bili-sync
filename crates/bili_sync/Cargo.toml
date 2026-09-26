@@ -49,6 +49,7 @@ sea-orm = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_urlencoded = { workspace = true }
+sha1 = "0.10.6"
 strum = { workspace = true }
 sysinfo = { workspace = true }
 thiserror = { workspace = true }

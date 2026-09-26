@@ -9,7 +9,7 @@
 ```yaml
 services:
   bili-sync-rs:
-    image: ghcr.io/xudong7587/bili-sync:bili115-2026.09.23.2
+    image: ghcr.io/xudong7587/bili-sync:bili115-2026.09.26.1
     volumes:
       - /path/to/bili-sync-config:/app/.config/bili-sync
       - /path/to/local-metadata:/media

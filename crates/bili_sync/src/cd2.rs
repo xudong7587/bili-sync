@@ -1,13 +1,14 @@
 //! Upload MP4 data through CloudDrive2's gRPC-Web API. Closing a CD2 file only
 //! queues its cloud transfer, so a page succeeds only after its upload task finishes.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail, ensure};
 use prost::Message;
 use reqwest::{Client, Url};
+use sha1::{Digest, Sha1};
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 
@@ -92,12 +93,23 @@ impl Cd2Client {
         let (remote_dir, file_name) = remote_file.rsplit_once('/').context("CD2 目标路径无效")?;
         self.ensure_directory(remote_dir).await?;
         let files = self.list_directory(remote_dir, true).await?;
-        ensure!(
-            !files.iter().any(|item| item.name == file_name),
-            "CD2 目标文件已存在：{remote_file}；请先确认云端状态，避免覆盖"
-        );
         let size = tokio::fs::metadata(local_file).await?.len();
         ensure!(size > 0, "拒绝上传空视频");
+        let hash = file_sha1(local_file).await?;
+        if let Some(existing) = files.iter().find(|item| item.name == file_name) {
+            ensure!(
+                existing.matches_uploaded(file_name, size, &hash)
+                    && !self
+                        .upload_list()
+                        .await?
+                        .upload_files
+                        .iter()
+                        .any(|task| task.dest_path == remote_file),
+                "CD2 目标文件已存在且无法确认内容一致：{remote_file}；请先确认云端状态，避免覆盖"
+            );
+            tracing::info!("CD2 云端视频校验一致，复用已上传文件：{remote_file}");
+            return Ok(());
+        }
         let previous_keys = self.upload_keys(&remote_file).await?;
         let create: CreateFileResult = self
             .call_one(
@@ -121,7 +133,7 @@ impl Cd2Client {
         transfer?;
         let close = close?;
         ensure!(close.success, "CD2 关闭文件失败：{}", close.error_message);
-        self.wait_for_upload(&remote_file, size, &previous_keys).await
+        self.wait_for_upload(&remote_file, size, &hash, &previous_keys).await
     }
 
     async fn write_file(&self, local_file: &Path, file_handle: u64, size: u64) -> Result<()> {
@@ -217,10 +229,31 @@ impl Cd2Client {
             .await
     }
 
-    async fn wait_for_upload(&self, remote_file: &str, size: u64, previous_keys: &HashSet<String>) -> Result<()> {
+    async fn wait_for_upload(
+        &self,
+        remote_file: &str,
+        size: u64,
+        hash: &str,
+        previous_keys: &HashSet<String>,
+    ) -> Result<()> {
         let deadline = Instant::now() + UPLOAD_TIMEOUT;
         loop {
             let tasks = self.upload_list().await?;
+            // Completed transfers may disappear before the next poll. Only a
+            // refreshed cloud file with a matching SHA1 can replace that signal;
+            // a filename/size alone may describe CD2's pending upload cache.
+            if !tasks.upload_files.iter().any(|task| task.dest_path == remote_file) {
+                let (parent, name) = remote_file.rsplit_once('/').unwrap();
+                if self
+                    .list_directory(parent, true)
+                    .await?
+                    .iter()
+                    .any(|file| file.matches_uploaded(name, size, hash))
+                {
+                    tracing::info!("CD2 上传完成，云端文件 SHA1 校验通过：{remote_file}");
+                    return Ok(());
+                }
+            }
             for task in tasks
                 .upload_files
                 .iter()
@@ -311,6 +344,20 @@ impl Cd2Client {
     }
 }
 
+async fn file_sha1(path: &Path) -> Result<String> {
+    let mut file = File::open(path).await?;
+    let mut hash = Sha1::new();
+    let mut buffer = vec![0; CHUNK_SIZE];
+    loop {
+        let length = file.read(&mut buffer).await?;
+        if length == 0 {
+            break;
+        }
+        hash.update(&buffer[..length]);
+    }
+    Ok(hex::encode(hash.finalize()))
+}
+
 pub fn validate(config: &Config) -> Result<()> {
     Cd2Client::configured(config).map(|_| ())
 }
@@ -376,6 +423,8 @@ struct SubFilesReply {
 }
 #[derive(Clone, PartialEq, Message)]
 struct CloudDriveFile {
+    #[prost(string, tag = "1")]
+    id: String,
     #[prost(string, tag = "2")]
     name: String,
     #[prost(int64, tag = "4")]
@@ -384,6 +433,27 @@ struct CloudDriveFile {
     file_type: i32,
     #[prost(bool, tag = "30")]
     is_directory: bool,
+    #[prost(bool, tag = "34")]
+    is_cloud_file: bool,
+    #[prost(map = "uint32, string", tag = "70")]
+    file_hashes: HashMap<u32, String>,
+}
+
+impl CloudDriveFile {
+    fn matches_uploaded(&self, name: &str, size: u64, sha1: &str) -> bool {
+        !self.id.is_empty()
+            && self.is_cloud_file
+            && !self.is_directory
+            && self.file_type == 1
+            && self.name == name
+            && self.size > 0
+            && self.size as u64 == size
+            && sha1.len() == 40
+            && self
+                .file_hashes
+                .get(&2)
+                .is_some_and(|hash| hash.eq_ignore_ascii_case(sha1))
+    }
 }
 #[derive(Clone, PartialEq, Message)]
 struct CreateFolderRequest {
@@ -470,6 +540,41 @@ struct UploadFileInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cloud_verification_requires_identity_and_content() {
+        let hash = "0123456789abcdef0123456789abcdef01234567";
+        let mut file = CloudDriveFile {
+            id: "cloud-file-id".into(),
+            name: "video.mp4".into(),
+            size: 123,
+            file_type: 1,
+            is_cloud_file: true,
+            file_hashes: HashMap::from([(2, hash.to_uppercase())]),
+            ..Default::default()
+        };
+        assert!(file.matches_uploaded("video.mp4", 123, hash));
+        assert!(!file.matches_uploaded("other.mp4", 123, hash));
+        assert!(!file.matches_uploaded("video.mp4", 124, hash));
+        assert!(!file.matches_uploaded("video.mp4", 123, "ffffffffffffffffffffffffffffffffffffffff"));
+        file.is_cloud_file = false;
+        assert!(!file.matches_uploaded("video.mp4", 123, hash));
+        file.is_cloud_file = true;
+        file.id.clear();
+        assert!(!file.matches_uploaded("video.mp4", 123, hash));
+        file.id = "cloud-file-id".into();
+        file.file_hashes.clear();
+        assert!(!file.matches_uploaded("video.mp4", 123, hash));
+    }
+
+    #[tokio::test]
+    async fn hashes_local_video_content() {
+        let file = async_tempfile::TempFile::new().await.unwrap();
+        tokio::fs::write(file.file_path(), b"abc").await.unwrap();
+        assert_eq!(
+            file_sha1(file.file_path()).await.unwrap(),
+            "a9993e364706816aba3e25717850c26c9cd0d89d"
+        );
+    }
     #[test]
     fn rejects_unsafe_cloud_paths() {
         for path in ["/", "relative", "/115/../video", "/115//video", "/115/video/"] {

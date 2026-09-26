@@ -33,10 +33,19 @@ impl Cd2Client {
         if url.is_empty() && token.is_empty() && save_path.is_empty() {
             return Ok(None);
         }
-        ensure!(!url.is_empty() && !token.is_empty() && !save_path.is_empty(), "CD2 地址、令牌和保存路径必须同时填写");
+        ensure!(
+            !url.is_empty() && !token.is_empty() && !save_path.is_empty(),
+            "CD2 地址、令牌和保存路径必须同时填写"
+        );
         let url = Url::parse(url).context("CD2 地址无效")?;
-        ensure!(matches!(url.scheme(), "http" | "https") && url.host_str().is_some(), "CD2 地址必须是 HTTP(S) URL");
-        ensure!(url.username().is_empty() && url.password().is_none() && url.query().is_none() && url.fragment().is_none(), "CD2 地址不能包含凭据、查询或片段");
+        ensure!(
+            matches!(url.scheme(), "http" | "https") && url.host_str().is_some(),
+            "CD2 地址必须是 HTTP(S) URL"
+        );
+        ensure!(
+            url.username().is_empty() && url.password().is_none() && url.query().is_none() && url.fragment().is_none(),
+            "CD2 地址不能包含凭据、查询或片段"
+        );
         ensure!(!token.contains('\r') && !token.contains('\n'), "CD2 令牌包含无效字符");
         validate_remote_path(save_path)?;
         let metadata_root = std::env::var_os("BILI_SYNC_METADATA_ROOT")
@@ -59,7 +68,9 @@ impl Cd2Client {
     }
 
     pub fn remote_path(&self, metadata_file: &Path) -> Result<String> {
-        let relative = metadata_file.strip_prefix(&self.metadata_root).context("视频路径不在元数据根目录下")?;
+        let relative = metadata_file
+            .strip_prefix(&self.metadata_root)
+            .context("视频路径不在元数据根目录下")?;
         ensure!(!relative.as_os_str().is_empty(), "视频路径不能为空");
         let mut output = self.save_path.clone();
         for component in relative.components() {
@@ -81,17 +92,32 @@ impl Cd2Client {
         let (remote_dir, file_name) = remote_file.rsplit_once('/').context("CD2 目标路径无效")?;
         self.ensure_directory(remote_dir).await?;
         let files = self.list_directory(remote_dir, true).await?;
-        ensure!(!files.iter().any(|item| item.name == file_name), "CD2 目标文件已存在：{remote_file}；请先确认云端状态，避免覆盖");
+        ensure!(
+            !files.iter().any(|item| item.name == file_name),
+            "CD2 目标文件已存在：{remote_file}；请先确认云端状态，避免覆盖"
+        );
         let size = tokio::fs::metadata(local_file).await?.len();
         ensure!(size > 0, "拒绝上传空视频");
         let previous_keys = self.upload_keys(&remote_file).await?;
-        let create: CreateFileResult = self.call_one("CreateFile", &CreateFileRequest {
-            parent_path: remote_dir.to_owned(),
-            file_name: file_name.to_owned(),
-        }).await?;
+        let create: CreateFileResult = self
+            .call_one(
+                "CreateFile",
+                &CreateFileRequest {
+                    parent_path: remote_dir.to_owned(),
+                    file_name: file_name.to_owned(),
+                },
+            )
+            .await?;
         ensure!(create.file_handle != 0, "CD2 未返回文件句柄");
         let transfer = self.write_file(local_file, create.file_handle, size).await;
-        let close: Result<FileOperationResult> = self.call_one("CloseFile", &CloseFileRequest { file_handle: create.file_handle }).await;
+        let close: Result<FileOperationResult> = self
+            .call_one(
+                "CloseFile",
+                &CloseFileRequest {
+                    file_handle: create.file_handle,
+                },
+            )
+            .await;
         transfer?;
         let close = close?;
         ensure!(close.success, "CD2 关闭文件失败：{}", close.error_message);
@@ -104,15 +130,27 @@ impl Cd2Client {
         let mut offset = 0;
         loop {
             let length = file.read(&mut buffer).await?;
-            if length == 0 { break; }
-            let result: WriteFileResult = self.call_one("WriteToFile", &WriteFileRequest {
-                file_handle,
-                start_pos: offset,
-                length: length as u64,
-                buffer: buffer[..length].to_vec(),
-                close_file: false,
-            }).await?;
-            ensure!(result.bytes_written == length as u64, "CD2 写入字节数不足：{}/{}", result.bytes_written, length);
+            if length == 0 {
+                break;
+            }
+            let result: WriteFileResult = self
+                .call_one(
+                    "WriteToFile",
+                    &WriteFileRequest {
+                        file_handle,
+                        start_pos: offset,
+                        length: length as u64,
+                        buffer: buffer[..length].to_vec(),
+                        close_file: false,
+                    },
+                )
+                .await?;
+            ensure!(
+                result.bytes_written == length as u64,
+                "CD2 写入字节数不足：{}/{}",
+                result.bytes_written,
+                length
+            );
             offset += length as u64;
         }
         ensure!(offset == size, "本地视频上传期间大小改变");
@@ -123,14 +161,25 @@ impl Cd2Client {
         let mut parent = String::new();
         for name in path.split('/').filter(|part| !part.is_empty()) {
             let current = format!("{parent}/{name}");
-            let items = self.list_directory(if parent.is_empty() { "/" } else { &parent }, false).await?;
+            let items = self
+                .list_directory(if parent.is_empty() { "/" } else { &parent }, false)
+                .await?;
             if let Some(item) = items.iter().find(|item| item.name == name) {
                 ensure!(item.is_directory || item.file_type == 0, "CD2 路径不是目录：{current}");
             } else {
-                let created: CreateFolderResult = self.call_one("CreateFolder", &CreateFolderRequest {
-                    parent_path: if parent.is_empty() { "/".to_owned() } else { parent.clone() },
-                    folder_name: name.to_owned(),
-                }).await?;
+                let created: CreateFolderResult = self
+                    .call_one(
+                        "CreateFolder",
+                        &CreateFolderRequest {
+                            parent_path: if parent.is_empty() {
+                                "/".to_owned()
+                            } else {
+                                parent.clone()
+                            },
+                            folder_name: name.to_owned(),
+                        },
+                    )
+                    .await?;
                 let success = created.result.is_some_and(|result| result.success) || created.folder_created.is_some();
                 ensure!(success, "CD2 创建目录失败：{current}");
             }
@@ -140,37 +189,66 @@ impl Cd2Client {
     }
 
     async fn list_directory(&self, path: &str, force_refresh: bool) -> Result<Vec<CloudDriveFile>> {
-        let replies: Vec<SubFilesReply> = self.call_stream("GetSubFiles", &ListSubFileRequest {
-            path: path.to_owned(),
-            force_refresh,
-        }).await?;
+        let replies: Vec<SubFilesReply> = self
+            .call_stream(
+                "GetSubFiles",
+                &ListSubFileRequest {
+                    path: path.to_owned(),
+                    force_refresh,
+                },
+            )
+            .await?;
         Ok(replies.into_iter().flat_map(|reply| reply.sub_files).collect())
     }
 
     async fn upload_keys(&self, remote_file: &str) -> Result<HashSet<String>> {
-        Ok(self.upload_list().await?.upload_files.into_iter()
+        Ok(self
+            .upload_list()
+            .await?
+            .upload_files
+            .into_iter()
             .filter(|item| item.dest_path == remote_file)
             .map(|item| item.key)
             .collect())
     }
 
     async fn upload_list(&self) -> Result<GetUploadFileListResult> {
-        self.call_one("GetUploadFileList", &GetUploadFileListRequest { get_all: true }).await
+        self.call_one("GetUploadFileList", &GetUploadFileListRequest { get_all: true })
+            .await
     }
 
     async fn wait_for_upload(&self, remote_file: &str, size: u64, previous_keys: &HashSet<String>) -> Result<()> {
         let deadline = Instant::now() + UPLOAD_TIMEOUT;
         loop {
             let tasks = self.upload_list().await?;
-            for task in tasks.upload_files.iter().filter(|task| task.dest_path == remote_file && !previous_keys.contains(&task.key)) {
+            for task in tasks
+                .upload_files
+                .iter()
+                .filter(|task| task.dest_path == remote_file && !previous_keys.contains(&task.key))
+            {
                 match task.status_enum {
                     5 => {
-                        ensure!(task.size == size && task.transfered_bytes == size, "CD2 完成任务的文件大小不符：{remote_file}");
-                        let files = self.list_directory(remote_file.rsplit_once('/').unwrap().0, true).await?;
-                        ensure!(files.iter().any(|file| file.name == remote_file.rsplit_once('/').unwrap().1 && file.size == size as i64), "CD2 上传完成但目录中未找到对应视频：{remote_file}");
+                        ensure!(
+                            task.size == size && task.transfered_bytes == size,
+                            "CD2 完成任务的文件大小不符：{remote_file}"
+                        );
+                        let files = self
+                            .list_directory(remote_file.rsplit_once('/').unwrap().0, true)
+                            .await?;
+                        ensure!(
+                            files
+                                .iter()
+                                .any(|file| file.name == remote_file.rsplit_once('/').unwrap().1
+                                    && file.size == size as i64),
+                            "CD2 上传完成但目录中未找到对应视频：{remote_file}"
+                        );
                         return Ok(());
                     }
-                    2 | 6 | 8 | 9 | 10 => bail!("CD2 上传未成功：{remote_file}，状态 {}，{}", task.status_enum, task.error_message),
+                    2 | 6 | 8 | 9 | 10 => bail!(
+                        "CD2 上传未成功：{remote_file}，状态 {}，{}",
+                        task.status_enum,
+                        task.error_message
+                    ),
                     _ => {}
                 }
             }
@@ -192,14 +270,22 @@ impl Cd2Client {
         body.push(0);
         body.extend_from_slice(&(encoded.len() as u32).to_be_bytes());
         body.extend_from_slice(&encoded);
-        let response = self.http.post(endpoint)
+        let response = self
+            .http
+            .post(endpoint)
             .header("content-type", "application/grpc-web+proto")
             .header("accept", "application/grpc-web+proto")
             .header("x-grpc-web", "1")
             .bearer_auth(&self.token)
             .body(body)
-            .send().await.context("CD2 API 请求失败")?;
-        ensure!(response.status().is_success(), "CD2 {method} HTTP 状态 {}", response.status());
+            .send()
+            .await
+            .context("CD2 API 请求失败")?;
+        ensure!(
+            response.status().is_success(),
+            "CD2 {method} HTTP 状态 {}",
+            response.status()
+        );
         let bytes = response.bytes().await?;
         ensure!(bytes.len() <= 32 * 1024 * 1024, "CD2 {method} 响应过大");
         decode_frames::<Res>(&bytes)
@@ -211,8 +297,16 @@ pub fn validate(config: &Config) -> Result<()> {
 }
 
 fn validate_remote_path(path: &str) -> Result<()> {
-    ensure!(path.starts_with('/') && path != "/" && !path.ends_with('/'), "CD2 保存路径必须是绝对目录，且不能是根目录或以 / 结尾");
-    ensure!(path.split('/').skip(1).all(|part| !part.is_empty() && part != "." && part != ".." && !part.contains('\\')), "CD2 保存路径包含无效目录名");
+    ensure!(
+        path.starts_with('/') && path != "/" && !path.ends_with('/'),
+        "CD2 保存路径必须是绝对目录，且不能是根目录或以 / 结尾"
+    );
+    ensure!(
+        path.split('/')
+            .skip(1)
+            .all(|part| !part.is_empty() && part != "." && part != ".." && !part.contains('\\')),
+        "CD2 保存路径包含无效目录名"
+    );
     Ok(())
 }
 
@@ -236,7 +330,12 @@ fn decode_frames<T: Message + Default>(bytes: &[u8]) -> Result<Vec<T>> {
     }
     ensure!(offset == bytes.len(), "CD2 gRPC-Web 响应末尾不完整");
     let trailer = trailer.context("CD2 gRPC-Web 响应缺少状态")?;
-    ensure!(trailer.lines().any(|line| line.trim().eq_ignore_ascii_case("grpc-status: 0")), "CD2 API 返回错误：{trailer}");
+    ensure!(
+        trailer
+            .lines()
+            .any(|line| line.trim().eq_ignore_ascii_case("grpc-status: 0")),
+        "CD2 API 返回错误：{trailer}"
+    );
     Ok(values)
 }
 
@@ -248,60 +347,101 @@ struct ListSubFileRequest {
     force_refresh: bool,
 }
 #[derive(Clone, PartialEq, Message)]
-struct SubFilesReply { #[prost(message, repeated, tag = "1")] sub_files: Vec<CloudDriveFile> }
+struct SubFilesReply {
+    #[prost(message, repeated, tag = "1")]
+    sub_files: Vec<CloudDriveFile>,
+}
 #[derive(Clone, PartialEq, Message)]
 struct CloudDriveFile {
-    #[prost(string, tag = "2")] name: String,
-    #[prost(int64, tag = "4")] size: i64,
-    #[prost(int32, tag = "5")] file_type: i32,
-    #[prost(bool, tag = "30")] is_directory: bool,
+    #[prost(string, tag = "2")]
+    name: String,
+    #[prost(int64, tag = "4")]
+    size: i64,
+    #[prost(int32, tag = "5")]
+    file_type: i32,
+    #[prost(bool, tag = "30")]
+    is_directory: bool,
 }
 #[derive(Clone, PartialEq, Message)]
 struct CreateFolderRequest {
-    #[prost(string, tag = "1")] parent_path: String,
-    #[prost(string, tag = "2")] folder_name: String,
+    #[prost(string, tag = "1")]
+    parent_path: String,
+    #[prost(string, tag = "2")]
+    folder_name: String,
 }
 #[derive(Clone, PartialEq, Message)]
 struct CreateFolderResult {
-    #[prost(message, optional, tag = "1")] folder_created: Option<CloudDriveFile>,
-    #[prost(message, optional, tag = "2")] result: Option<FileOperationResult>,
+    #[prost(message, optional, tag = "1")]
+    folder_created: Option<CloudDriveFile>,
+    #[prost(message, optional, tag = "2")]
+    result: Option<FileOperationResult>,
 }
 #[derive(Clone, PartialEq, Message)]
 struct FileOperationResult {
-    #[prost(bool, tag = "1")] success: bool,
-    #[prost(string, tag = "2")] error_message: String,
+    #[prost(bool, tag = "1")]
+    success: bool,
+    #[prost(string, tag = "2")]
+    error_message: String,
 }
 #[derive(Clone, PartialEq, Message)]
 struct CreateFileRequest {
-    #[prost(string, tag = "1")] parent_path: String,
-    #[prost(string, tag = "2")] file_name: String,
+    #[prost(string, tag = "1")]
+    parent_path: String,
+    #[prost(string, tag = "2")]
+    file_name: String,
 }
 #[derive(Clone, PartialEq, Message)]
-struct CreateFileResult { #[prost(uint64, tag = "1")] file_handle: u64 }
+struct CreateFileResult {
+    #[prost(uint64, tag = "1")]
+    file_handle: u64,
+}
 #[derive(Clone, PartialEq, Message)]
 struct WriteFileRequest {
-    #[prost(uint64, tag = "1")] file_handle: u64,
-    #[prost(uint64, tag = "2")] start_pos: u64,
-    #[prost(uint64, tag = "3")] length: u64,
-    #[prost(bytes, tag = "4")] buffer: Vec<u8>,
-    #[prost(bool, tag = "5")] close_file: bool,
+    #[prost(uint64, tag = "1")]
+    file_handle: u64,
+    #[prost(uint64, tag = "2")]
+    start_pos: u64,
+    #[prost(uint64, tag = "3")]
+    length: u64,
+    #[prost(bytes, tag = "4")]
+    buffer: Vec<u8>,
+    #[prost(bool, tag = "5")]
+    close_file: bool,
 }
 #[derive(Clone, PartialEq, Message)]
-struct WriteFileResult { #[prost(uint64, tag = "1")] bytes_written: u64 }
+struct WriteFileResult {
+    #[prost(uint64, tag = "1")]
+    bytes_written: u64,
+}
 #[derive(Clone, PartialEq, Message)]
-struct CloseFileRequest { #[prost(uint64, tag = "1")] file_handle: u64 }
+struct CloseFileRequest {
+    #[prost(uint64, tag = "1")]
+    file_handle: u64,
+}
 #[derive(Clone, PartialEq, Message)]
-struct GetUploadFileListRequest { #[prost(bool, tag = "1")] get_all: bool }
+struct GetUploadFileListRequest {
+    #[prost(bool, tag = "1")]
+    get_all: bool,
+}
 #[derive(Clone, PartialEq, Message)]
-struct GetUploadFileListResult { #[prost(message, repeated, tag = "2")] upload_files: Vec<UploadFileInfo> }
+struct GetUploadFileListResult {
+    #[prost(message, repeated, tag = "2")]
+    upload_files: Vec<UploadFileInfo>,
+}
 #[derive(Clone, PartialEq, Message)]
 struct UploadFileInfo {
-    #[prost(string, tag = "1")] key: String,
-    #[prost(string, tag = "2")] dest_path: String,
-    #[prost(uint64, tag = "3")] size: u64,
-    #[prost(uint64, tag = "4")] transfered_bytes: u64,
-    #[prost(string, tag = "6")] error_message: String,
-    #[prost(int32, tag = "8")] status_enum: i32,
+    #[prost(string, tag = "1")]
+    key: String,
+    #[prost(string, tag = "2")]
+    dest_path: String,
+    #[prost(uint64, tag = "3")]
+    size: u64,
+    #[prost(uint64, tag = "4")]
+    transfered_bytes: u64,
+    #[prost(string, tag = "6")]
+    error_message: String,
+    #[prost(int32, tag = "8")]
+    status_enum: i32,
 }
 
 #[cfg(test)]
@@ -332,7 +472,9 @@ mod tests {
             metadata_root: PathBuf::from("/media"),
         };
         assert_eq!(
-            client.remote_path(Path::new("/media/basketball/合集/Season 1/BV1.mp4")).unwrap(),
+            client
+                .remote_path(Path::new("/media/basketball/合集/Season 1/BV1.mp4"))
+                .unwrap(),
             "/115/媒体库/08Bilibili/basketball/合集/Season 1/BV1.mp4"
         );
         assert!(client.remote_path(Path::new("/other/BV1.mp4")).is_err());

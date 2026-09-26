@@ -809,18 +809,37 @@ pub async fn fetch_page_video(
         .best_stream(cx.filter_option)?;
     if let Some(cd2) = Cd2Client::configured(cx.config)? {
         let temp_file = match streams {
-            BestStream::Mixed(mix_stream) => cx.downloader
-                .multi_fetch_to_temp(&mix_stream.urls(cx.config.cdn_sorting), &cx.config.concurrent_limit.download)
-                .await?,
-            BestStream::VideoAudio { video: video_stream, audio: None } => cx.downloader
-                .multi_fetch_to_temp(&video_stream.urls(cx.config.cdn_sorting), &cx.config.concurrent_limit.download)
-                .await?,
-            BestStream::VideoAudio { video: video_stream, audio: Some(audio_stream) } => cx.downloader
-                .multi_fetch_and_merge_to_temp(
-                    &video_stream.urls(cx.config.cdn_sorting),
-                    &audio_stream.urls(cx.config.cdn_sorting),
-                    &cx.config.concurrent_limit.download,
-                ).await?,
+            BestStream::Mixed(mix_stream) => {
+                cx.downloader
+                    .multi_fetch_to_temp(
+                        &mix_stream.urls(cx.config.cdn_sorting),
+                        &cx.config.concurrent_limit.download,
+                    )
+                    .await?
+            }
+            BestStream::VideoAudio {
+                video: video_stream,
+                audio: None,
+            } => {
+                cx.downloader
+                    .multi_fetch_to_temp(
+                        &video_stream.urls(cx.config.cdn_sorting),
+                        &cx.config.concurrent_limit.download,
+                    )
+                    .await?
+            }
+            BestStream::VideoAudio {
+                video: video_stream,
+                audio: Some(audio_stream),
+            } => {
+                cx.downloader
+                    .multi_fetch_and_merge_to_temp(
+                        &video_stream.urls(cx.config.cdn_sorting),
+                        &audio_stream.urls(cx.config.cdn_sorting),
+                        &cx.config.concurrent_limit.download,
+                    )
+                    .await?
+            }
         };
         let metadata_path = if let Some(layout) = StorageLayout::from_env()? {
             // The existing /video path is a compatibility mapping; derive the

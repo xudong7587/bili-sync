@@ -47,7 +47,8 @@ impl StorageLayout {
     }
 
     pub fn metadata_path_for_video(&self, video_path: &Path) -> Result<PathBuf> {
-        let relative = video_path.strip_prefix(&self.video_root)
+        let relative = video_path
+            .strip_prefix(&self.video_root)
             .with_context(|| format!("path {} is outside BILI_SYNC_VIDEO_ROOT", video_path.display()))?;
         Ok(self.metadata_root.join(relative))
     }

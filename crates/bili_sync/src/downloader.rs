@@ -73,7 +73,9 @@ impl Downloader {
         path: &Path,
         concurrent_download: &ConcurrentDownloadLimit,
     ) -> Result<()> {
-        let final_temp_file = self.multi_fetch_and_merge_to_temp(video_urls, audio_urls, concurrent_download).await?;
+        let final_temp_file = self
+            .multi_fetch_and_merge_to_temp(video_urls, audio_urls, concurrent_download)
+            .await?;
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).await?;
         }
@@ -114,10 +116,7 @@ impl Downloader {
         if !output.status.success() {
             bail!("ffmpeg error: {}", str::from_utf8(&output.stderr).unwrap_or("unknown"));
         }
-        tokio::join!(
-            video_temp_file.drop_async(),
-            audio_temp_file.drop_async()
-        );
+        tokio::join!(video_temp_file.drop_async(), audio_temp_file.drop_async());
         Ok(final_temp_file)
     }
 

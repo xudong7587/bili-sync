@@ -15,6 +15,7 @@ use tokio::fs;
 
 use crate::adapter::{VideoSource, VideoSourceEnum};
 use crate::bilibili::{BestStream, BiliClient, BiliError, Dimension, PageInfo, Video, VideoInfo};
+use crate::cd2::Cd2Client;
 use crate::config::{ARGS, Config, PathSafeTemplate};
 use crate::downloader::Downloader;
 use crate::error::ExecutionStatus;
@@ -408,7 +409,9 @@ pub async fn download_video_pages(
     let base_path = dunce::canonicalize(base_path).context("canonicalize video path failed")?;
     let metadata_base_path = base_path.clone();
     let video_base_path = StorageLayout::video_path_for(&base_path)?;
-    fs::create_dir_all(&video_base_path).await?;
+    if Cd2Client::configured(cx.config)?.is_none() {
+        fs::create_dir_all(&video_base_path).await?;
+    }
     let is_single_page = video_model.single_page.context("single_page is null")?;
     let uppers_with_path = video_model
         .uppers()
@@ -614,10 +617,15 @@ pub async fn download_page(
     let base_path = dunce::canonicalize(base_path).context("canonicalize base path failed")?;
     let metadata_base_path = base_path.to_path_buf();
     let video_base_path = StorageLayout::video_path_for(&base_path)?;
-    fs::create_dir_all(&video_base_path).await?;
+    let direct_cd2 = Cd2Client::configured(cx.config)?.is_some();
+    if !direct_cd2 {
+        fs::create_dir_all(&video_base_path).await?;
+    }
     if !is_single_page {
         fs::create_dir_all(metadata_base_path.join("Season 1")).await?;
-        fs::create_dir_all(video_base_path.join("Season 1")).await?;
+        if !direct_cd2 {
+            fs::create_dir_all(video_base_path.join("Season 1")).await?;
+        }
     }
     let (poster_path, video_path, nfo_path, danmaku_path, fanart_path, subtitle_path) = if is_single_page {
         (
@@ -799,6 +807,52 @@ pub async fn fetch_page_video(
         .get_page_analyzer(page_info)
         .await?
         .best_stream(cx.filter_option)?;
+    if let Some(cd2) = Cd2Client::configured(cx.config)? {
+        let temp_file = match streams {
+            BestStream::Mixed(mix_stream) => {
+                cx.downloader
+                    .multi_fetch_to_temp(
+                        &mix_stream.urls(cx.config.cdn_sorting),
+                        &cx.config.concurrent_limit.download,
+                    )
+                    .await?
+            }
+            BestStream::VideoAudio {
+                video: video_stream,
+                audio: None,
+            } => {
+                cx.downloader
+                    .multi_fetch_to_temp(
+                        &video_stream.urls(cx.config.cdn_sorting),
+                        &cx.config.concurrent_limit.download,
+                    )
+                    .await?
+            }
+            BestStream::VideoAudio {
+                video: video_stream,
+                audio: Some(audio_stream),
+            } => {
+                cx.downloader
+                    .multi_fetch_and_merge_to_temp(
+                        &video_stream.urls(cx.config.cdn_sorting),
+                        &audio_stream.urls(cx.config.cdn_sorting),
+                        &cx.config.concurrent_limit.download,
+                    )
+                    .await?
+            }
+        };
+        let metadata_path = if let Some(layout) = StorageLayout::from_env()? {
+            // The existing /video path is a compatibility mapping; derive the
+            // cloud path from its matching /media location.
+            layout.metadata_path_for_video(page_path)?
+        } else {
+            page_path.to_path_buf()
+        };
+        let result = cd2.upload(temp_file.file_path(), &metadata_path).await;
+        temp_file.drop_async().await;
+        result?;
+        return Ok(ExecutionStatus::Succeeded);
+    }
     match streams {
         BestStream::Mixed(mix_stream) => {
             cx.downloader

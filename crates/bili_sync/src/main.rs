@@ -4,6 +4,7 @@ extern crate tracing;
 mod adapter;
 mod api;
 mod bilibili;
+mod cd2;
 mod config;
 mod database;
 mod downloader;

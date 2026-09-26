@@ -801,6 +801,46 @@
 
 					<div class="space-y-4">
 						<div>
+							<h3 class="text-lg font-semibold">CloudDrive2 直传 115</h3>
+							<p class="text-muted-foreground text-sm">
+								填写三项后，新视频先下载到容器临时目录，再经 CD2 上传到
+								115。确认云端上传任务完成后才通知 MediaIndex；NFO 和图片仍保存在
+								/media。留空三项则保持原存储方式。
+							</p>
+						</div>
+						<div class="space-y-2">
+							<Label for="cd2-url">CD2 地址</Label>
+							<Input
+								id="cd2-url"
+								placeholder="http://clouddrive2:19798/"
+								bind:value={formData.cd2_url}
+							/>
+						</div>
+						<div class="space-y-2">
+							<Label for="cd2-token">CD2 API 令牌</Label>
+							<PasswordInput
+								id="cd2-token"
+								placeholder="粘贴 CD2 API 令牌"
+								bind:value={formData.cd2_token}
+							/>
+						</div>
+						<div class="space-y-2">
+							<Label for="cd2-save-path">115 保存根目录（CD2 内路径）</Label>
+							<Input
+								id="cd2-save-path"
+								placeholder="/115/媒体库/08Bilibili"
+								bind:value={formData.cd2_save_path}
+							/>
+							<p class="text-muted-foreground text-xs">
+								/media 下的相对目录会原样追加到这里；请与 MediaIndex 的 115 扫描根目录对应。
+							</p>
+						</div>
+					</div>
+
+					<Separator />
+
+					<div class="space-y-4">
+						<div>
 							<h3 class="text-lg font-semibold">MediaIndex 入库通知</h3>
 							<p class="text-muted-foreground text-sm">
 								视频下载完成后通知 MediaIndex 扫描预先指定的目录。地址和令牌均留空可关闭通知。

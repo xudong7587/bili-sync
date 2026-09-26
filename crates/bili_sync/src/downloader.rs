@@ -49,13 +49,21 @@ impl Downloader {
         path: &Path,
         concurrent_download: &ConcurrentDownloadLimit,
     ) -> Result<()> {
-        let temp_file = self.multi_fetch_internal(urls, true, concurrent_download).await?;
+        let temp_file = self.multi_fetch_to_temp(urls, concurrent_download).await?;
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).await?;
         }
         fs::copy(temp_file.file_path(), path).await?;
         temp_file.drop_async().await;
         Ok(())
+    }
+
+    pub async fn multi_fetch_to_temp(
+        &self,
+        urls: &[&str],
+        concurrent_download: &ConcurrentDownloadLimit,
+    ) -> Result<TempFile> {
+        self.multi_fetch_internal(urls, true, concurrent_download).await
     }
 
     pub async fn multi_fetch_and_merge(
@@ -65,6 +73,23 @@ impl Downloader {
         path: &Path,
         concurrent_download: &ConcurrentDownloadLimit,
     ) -> Result<()> {
+        let final_temp_file = self
+            .multi_fetch_and_merge_to_temp(video_urls, audio_urls, concurrent_download)
+            .await?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).await?;
+        }
+        fs::copy(final_temp_file.file_path(), path).await?;
+        final_temp_file.drop_async().await;
+        Ok(())
+    }
+
+    pub async fn multi_fetch_and_merge_to_temp(
+        &self,
+        video_urls: &[&str],
+        audio_urls: &[&str],
+        concurrent_download: &ConcurrentDownloadLimit,
+    ) -> Result<TempFile> {
         let (video_temp_file, audio_temp_file) = tokio::try_join!(
             self.multi_fetch_internal(video_urls, true, concurrent_download),
             self.multi_fetch_internal(audio_urls, true, concurrent_download)
@@ -91,16 +116,8 @@ impl Downloader {
         if !output.status.success() {
             bail!("ffmpeg error: {}", str::from_utf8(&output.stderr).unwrap_or("unknown"));
         }
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).await?;
-        }
-        fs::copy(final_temp_file.file_path(), path).await?;
-        tokio::join!(
-            video_temp_file.drop_async(),
-            audio_temp_file.drop_async(),
-            final_temp_file.drop_async()
-        );
-        Ok(())
+        tokio::join!(video_temp_file.drop_async(), audio_temp_file.drop_async());
+        Ok(final_temp_file)
     }
 
     async fn multi_fetch_internal(

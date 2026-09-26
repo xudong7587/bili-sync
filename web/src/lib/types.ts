@@ -362,6 +362,9 @@ export interface Config {
 	ignore_common_errors: boolean;
 	media_index_webhook_url: string;
 	media_index_webhook_token: string;
+	cd2_url: string;
+	cd2_token: string;
+	cd2_save_path: string;
 	favorite_default_path: string;
 	collection_default_path: string;
 	submission_default_path: string;

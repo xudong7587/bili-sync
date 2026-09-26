@@ -46,6 +46,12 @@ pub struct Config {
     pub media_index_webhook_url: String,
     #[serde(default)]
     pub media_index_webhook_token: String,
+    #[serde(default)]
+    pub cd2_url: String,
+    #[serde(default)]
+    pub cd2_token: String,
+    #[serde(default)]
+    pub cd2_save_path: String,
     #[serde(default = "default_favorite_path")]
     pub favorite_default_path: String,
     #[serde(default = "default_collection_path")]
@@ -74,6 +80,7 @@ impl Config {
 
     pub fn check(&self) -> Result<()> {
         crate::media_index::validate(self)?;
+        crate::cd2::validate(self)?;
         let mut errors = Vec::new();
         if !self.upper_path.is_absolute() {
             errors.push("up 主头像保存的路径应为绝对路径");
@@ -140,6 +147,9 @@ impl Default for Config {
             ignore_common_errors: false,
             media_index_webhook_url: String::new(),
             media_index_webhook_token: String::new(),
+            cd2_url: String::new(),
+            cd2_token: String::new(),
+            cd2_save_path: String::new(),
             favorite_default_path: default_favorite_path(),
             collection_default_path: default_collection_path(),
             submission_default_path: default_submission_path(),

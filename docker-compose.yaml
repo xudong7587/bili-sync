@@ -14,7 +14,8 @@ services:
 
     environment:
       TZ: Asia/Shanghai
-      # 两个变量必须同时设置：原有订阅路径仍填写 /media/...。
+      # 原有挂载写入模式：两个变量必须同时设置，订阅路径仍填写 /media/...。
+      # 启用 CD2 直传后可继续保留这些映射，但新 MP4 不会写入 /video。
       BILI_SYNC_METADATA_ROOT: /media
       BILI_SYNC_VIDEO_ROOT: /video
       # MediaIndex 的 Webhook 地址和令牌在管理页的「设置 → 通知设置」中填写。
@@ -25,7 +26,7 @@ services:
       - /path/to/bili-sync-config:/app/.config/bili-sync
       # 本地磁盘：NFO、海报、字幕等元数据；Emby 读取此目录。
       - /path/to/local-metadata:/media
-      # 视频存储：可使用 CD2 等工具挂载的网盘目录。
+      # 原有挂载写入模式的视频目录；CD2 直传模式不需要写入此目录。
       - /path/to/video-storage:/video
       # 可选：如果原实例单独映射了 UP 主头像目录，请沿用原映射及配置中的目标路径。
       # - /path/to/emby/metadata/people:/app/.config/bili-sync/upper_face

@@ -46,6 +46,12 @@ impl StorageLayout {
         Ok(self.video_root.join(relative))
     }
 
+    pub fn metadata_path_for_video(&self, video_path: &Path) -> Result<PathBuf> {
+        let relative = video_path.strip_prefix(&self.video_root)
+            .with_context(|| format!("path {} is outside BILI_SYNC_VIDEO_ROOT", video_path.display()))?;
+        Ok(self.metadata_root.join(relative))
+    }
+
     pub fn video_path_for(metadata_path: &Path) -> Result<PathBuf> {
         match Self::from_env()? {
             Some(layout) => layout.video_path(metadata_path),
@@ -57,7 +63,10 @@ impl StorageLayout {
 /// Delete both halves only when the UI explicitly requests video removal.
 pub async fn remove_video_files(metadata_path: &Path) -> Result<()> {
     let video_path = StorageLayout::video_path_for(metadata_path)?;
-    if video_path != metadata_path {
+    // Direct CD2 uploads are independent of the old /video FUSE mount. Never
+    // remove that mount's contents as a side effect of a local reset.
+    let direct_cd2 = !crate::config::VersionedConfig::get().read().cd2_url.trim().is_empty();
+    if video_path != metadata_path && !direct_cd2 {
         match tokio::fs::remove_dir_all(&video_path).await {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}

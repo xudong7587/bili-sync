@@ -47,7 +47,7 @@
 	import CreatedTimeFilter from '$lib/components/created-time-filter.svelte';
 
 	export let embedded = false;
-	let presentation: 'card' | 'banner' | 'list' = 'card';
+	let presentation: 'card' | 'list' = 'list';
 	let sort = 'newest';
 	let resettingSelected = false;
 	async function resetSelected(ids: number[]) {
@@ -429,7 +429,7 @@
 
 	onMount(async () => {
 		const saved = localStorage.getItem('video-wall-mode');
-		if (saved === 'card' || saved === 'banner' || saved === 'list') presentation = saved;
+		if (saved === 'card' || saved === 'list') presentation = saved;
 		if (!embedded)
 			setBreadcrumb([
 				{
@@ -456,9 +456,7 @@
 			class="rounded-md border bg-background px-3 py-2 text-sm"
 			bind:value={presentation}
 			onchange={() => localStorage.setItem('video-wall-mode', presentation)}
-			><option value="card">背景图卡片</option><option value="banner">横幅卡片</option><option
-				value="list">列表</option
-			></select
+			><option value="card">海报卡片</option><option value="list">列表</option></select
 		>
 		<select
 			aria-label="视频排序"
@@ -638,14 +636,9 @@
 			busy={resettingSelected}
 		/>
 	{:else}
-		<div
-			class={presentation === 'banner'
-				? 'mb-8 grid gap-4 lg:grid-cols-2'
-				: 'mb-8 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'}
-		>
+		<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
 			{#each videosData.videos as video (video.id)}
 				<VideoCard
-					{presentation}
 					{video}
 					source={getVideoSource(video)}
 					onReset={async (forceReset: boolean) => {

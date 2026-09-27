@@ -22,8 +22,8 @@ use crate::api::request::{
 };
 use crate::api::response::{
     ClearAndResetVideoStatusResponse, PageInfo, ResetFilteredVideosResponse, ResetVideoResponse, SimplePageInfo,
-    SimpleVideoInfo, UpdateFilteredVideoStatusResponse, UpdateVideoStatusResponse, VideoInfo, VideoResponse,
-    VideosResponse,
+    SimpleVideoInfo, UpdateFilteredVideoStatusResponse, UpdateVideoStatusResponse, VideoInfo, VideoMetadata,
+    VideoResponse, VideosResponse,
 };
 use crate::api::wrapper::{ApiError, ApiResponse, ValidatedJson};
 use crate::storage::remove_video_files;
@@ -149,6 +149,10 @@ pub async fn get_video(
         return Err(InnerApiError::NotFound(id).into());
     };
     Ok(ApiResponse::ok(VideoResponse {
+        metadata: video::Entity::find_by_id(id)
+            .into_partial_model::<VideoMetadata>()
+            .one(&db)
+            .await?,
         video: video_info,
         pages: pages_info,
     }))
@@ -218,6 +222,7 @@ pub async fn clear_and_reset_video_status(
     Extension(db): Extension<DatabaseConnection>,
 ) -> Result<ApiResponse<ClearAndResetVideoStatusResponse>, ApiError> {
     let _guard = crate::task::DownloadTaskManager::get().try_library_lock()?;
+    crate::library::cloud_replace::ensure_no_pending().await?;
     let video_info = video::Entity::find_by_id(id).one(&db).await?;
     let Some(video_info) = video_info else {
         return Err(InnerApiError::NotFound(id).into());

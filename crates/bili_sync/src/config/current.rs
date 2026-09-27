@@ -61,6 +61,12 @@ pub struct Config {
     pub cd2_save_path: String,
     #[serde(default)]
     pub strm_base_url: String,
+    #[serde(default)]
+    pub media_index_webhook_enabled: bool,
+    #[serde(default)]
+    pub media_index_webhook_url: String,
+    #[serde(default)]
+    pub media_index_webhook_token: String,
     #[serde(default = "default_favorite_path")]
     pub favorite_default_path: String,
     #[serde(default = "default_collection_path")]
@@ -91,7 +97,7 @@ impl Config {
 
     pub fn check(&self) -> Result<()> {
         crate::cd2::validate(self)?;
-        crate::library::validate(self)?;
+        crate::media_index::validate(self)?;
         self.refresh_schedule.validate()?;
         let mut errors = Vec::new();
         if !self.upper_path.is_absolute() {
@@ -162,6 +168,9 @@ impl Default for Config {
             cd2_token: String::new(),
             cd2_save_path: String::new(),
             strm_base_url: String::new(),
+            media_index_webhook_enabled: false,
+            media_index_webhook_url: String::new(),
+            media_index_webhook_token: String::new(),
             favorite_default_path: default_favorite_path(),
             collection_default_path: default_collection_path(),
             submission_default_path: default_submission_path(),
@@ -182,14 +191,12 @@ impl Default for Config {
 mod compatibility_tests {
     use super::*;
     #[test]
-    fn removed_media_index_fields_are_ignored_without_affecting_existing_config() {
-        let original = Config::default();
-        let expected = serde_json::to_value(&original).unwrap();
-        let mut saved = expected.clone();
+    fn existing_media_index_settings_survive_roundtrip() {
+        let mut saved = serde_json::to_value(Config::default()).unwrap();
         saved["media_index_webhook_enabled"] = true.into();
-        saved["media_index_webhook_url"] = "https://obsolete.example.com/webhook".into();
+        saved["media_index_webhook_url"] = "https://media.example.com/webhook".into();
         saved["media_index_webhook_token"] = "legacy-token".into();
-        let loaded: Config = serde_json::from_value(saved).unwrap();
-        assert_eq!(serde_json::to_value(loaded).unwrap(), expected);
+        let loaded: Config = serde_json::from_value(saved.clone()).unwrap();
+        assert_eq!(serde_json::to_value(loaded).unwrap(), saved);
     }
 }

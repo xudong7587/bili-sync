@@ -237,8 +237,10 @@ class ApiClient {
 		return this.get<LibraryJob>('/library/jobs');
 	}
 
-	async storageSummary() {
-		return this.get<{ name: string; bytes: number; count: number }[]>('/dashboard/storage');
+	async storageSummary(metric: 'count' | 'bytes' = 'count') {
+		return this.get<{ name: string; bytes: number; count: number; unknown_count: number }[]>(
+			`/dashboard/storage?metric=${metric}`
+		);
 	}
 
 	async cloudSpace(connection?: { url: string; token: string; path: string }) {
@@ -374,7 +376,7 @@ const api = {
 	libraryStart: (ids: number[], action: string) => apiClient.libraryStart(ids, action),
 	libraryJob: () => apiClient.libraryJob(),
 
-	storageSummary: () => apiClient.storageSummary(),
+	storageSummary: (metric: 'count' | 'bytes' = 'count') => apiClient.storageSummary(metric),
 	cloudSpace: (connection?: { url: string; token: string; path: string }) =>
 		apiClient.cloudSpace(connection),
 	cloudAccountCheck: () => apiClient.cloudAccountCheck(),

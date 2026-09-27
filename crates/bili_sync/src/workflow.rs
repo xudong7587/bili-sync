@@ -50,6 +50,10 @@ pub async fn process_video_source(
     template: &handlebars::Handlebars<'_>,
     config: &Config,
 ) -> Result<()> {
+    if let Err(error) = crate::media_index::flush_pending().await {
+        warn!("MediaIndex 通知待重试：{error:#}");
+    }
+    crate::library::cloud_replace::recover(config).await?;
     // 预创建视频源目录，提前检测目录是否可写
     video_source.create_dir_all().await?;
     // 从参数中获取视频列表的 Model 与视频流
@@ -78,6 +82,9 @@ pub async fn process_video_source(
         if download_notify_info.should_notify() {
             notify(config, bili_client, download_notify_info);
         }
+    }
+    if let Err(error) = crate::media_index::flush_pending().await {
+        warn!("MediaIndex 通知待重试：{error:#}");
     }
     Ok(())
 }
@@ -650,7 +657,7 @@ pub async fn download_page(
         dimension,
         ..Default::default()
     };
-    let (res_1, mut res_2, res_3, res_4, res_5) = tokio::join!(
+    let (res_1, res_2, res_3, res_4, res_5) = tokio::join!(
         // 下载分页封面
         fetch_page_poster(
             separate_status[0] && !cx.config.skip_option.no_poster,
@@ -687,17 +694,19 @@ pub async fn download_page(
             cx
         )
     );
-    // Publish STRM only after the concurrent metadata work has completed.
-    if res_2.is_ok() && res_3.is_ok() && !cx.config.strm_base_url.is_empty() {
-        let publish = async {
-            if let Some(receipt) = crate::library::load(video_model.id, page_info.cid).await? {
-                crate::library::write_strm(&receipt, cx.config).await?;
-            }
-            Result::<()>::Ok(())
-        }
-        .await;
-        if let Err(error) = publish {
-            res_2 = Err(error);
+    // Persist the completion notification before committing the successful page state.
+    // A retry of failed metadata also queues the signal; no cloud directory scan here.
+    if direct_cd2
+        && separate_status.iter().any(|pending| *pending)
+        && res_1.is_ok()
+        && res_2.is_ok()
+        && res_3.is_ok()
+        && res_4.is_ok()
+        && res_5.is_ok()
+    {
+        crate::media_index::mark_pending().await?;
+        if let Err(error) = crate::media_index::flush_pending().await {
+            warn!("MediaIndex 通知待重试：{error:#}");
         }
     }
     let results = [res_1.into(), res_2.into(), res_3.into(), res_4.into(), res_5.into()];

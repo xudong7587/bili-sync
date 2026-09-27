@@ -19,17 +19,17 @@ services:
       BILI_SYNC_VIDEO_ROOT: /video
 ```
 
-视频源在 bili-sync 中仍填写 `/media/...`，不用修改旧订阅。例如数据库中的 `/media/earth/视频/BV1.mp4` 对应实际视频 `/video/earth/视频/BV1.mp4` 和本地元数据 `/media/earth/视频/BV1.nfo`。Emby 扫描本地元数据目录；CD2 直传模式可由 bili-sync 在该目录生成同名 STRM。
+视频源在 bili-sync 中仍填写 `/media/...`，不用修改旧订阅。例如数据库中的 `/media/earth/视频/BV1.mp4` 对应实际视频 `/video/earth/视频/BV1.mp4` 和本地元数据 `/media/earth/视频/BV1.nfo`。Emby 扫描本地元数据目录；CD2 直传完成后可通知 MediaIndex 在该目录生成 STRM。
 
-新版由 bili-sync 逐文件生成 STRM，旧的 MediaIndex 专用通知模块已移除。通用 Webhook 通知器不受影响。
+新版通过 MediaIndex Webhook 通知生成 STRM，也可自行配置外部 STRM 工具的事件或定时扫描。通用 Webhook 通知器不受影响。
 
 ### CD2 API 直传 115
 
 保存路径相对于 API 令牌允许访问的根目录。如果令牌已经限定到 `/115open`，应填写 `/媒体库/08Bilibili`，不要重复添加 `/115open` 前缀。
 
-在「网盘分流 → CloudDrive2 · 115」填写 CD2 地址、API 令牌和 CD2 内的保存根目录，例如 `/115/媒体库/08Bilibili`。选择网盘模式时，三个字段必须同时填写；只有兼容模式才会沿用旧的 `/video` 挂载写入。选择本地模式则按原版方式把视频与元数据放在一起。直传时，bili-sync 先在容器临时目录下载、合并 MP4，再通过 CD2 API 分块写入 115，并等待 CD2 上传任务变为完成；确认云端文件后才更新分页下载状态，并在设置了 STRM 播放服务地址时生成 STRM。CD2 上传失败或超时会保留未完成状态，供下轮重试。请给容器临时目录留出足够空间容纳正在处理的视频。
+在「网盘分流 → CloudDrive2 · 115」填写 CD2 地址、API 令牌和 CD2 内的保存根目录，例如 `/115/媒体库/08Bilibili`。选择网盘模式时，三个字段必须同时填写；只有兼容模式才会沿用旧的 `/video` 挂载写入。选择本地模式则按原版方式把视频与元数据放在一起。直传时，bili-sync 先在容器临时目录下载、合并 MP4，再通过 CD2 API 分块写入 115，并等待 CD2 上传任务变为完成；确认云端文件后才更新分页下载状态，并在启用了 MediaIndex 入库联动时发送完成通知。CD2 上传失败或超时会保留未完成状态，供下轮重试。请给容器临时目录留出足够空间容纳正在处理的视频。
 
-例如，本地 `/media/basketball/视频/BV1.nfo` 对应 115 中 `/115/媒体库/08Bilibili/basketball/视频/BV1.mp4`。STRM 会准确写入对应的本地元数据目录；播放通过 CD2 已有的 115 登录会话完成，无需再次扫码。CD2 直传不需要写入 `/video`，但旧 compose 的映射可以保留以便平滑切换。不要同时运行两个实例处理同一份订阅数据库。
+例如，本地 `/media/basketball/视频/BV1.nfo` 对应 115 中 `/115/媒体库/08Bilibili/basketball/视频/BV1.mp4`。在 MediaIndex 中配置对应的网盘扫描目录与本地元数据输出目录，由其管理 STRM 与播放服务。CD2 直传不需要写入 `/video`，但旧 compose 的映射可以保留以便平滑切换。不要同时运行两个实例处理同一份订阅数据库。
 
 ### 现有文件
 

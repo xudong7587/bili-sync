@@ -59,6 +59,14 @@ export interface PageInfo {
 }
 
 export interface VideoResponse {
+	metadata?: {
+		upper_id: number;
+		upper_face: string;
+		intro: string;
+		path: string;
+		pubtime: string;
+		tags?: string[];
+	};
 	video: VideoInfo;
 	pages: PageInfo[];
 }
@@ -377,6 +385,9 @@ export interface Config {
 	cd2_token: string;
 	cd2_save_path: string;
 	strm_base_url: string;
+	media_index_webhook_enabled?: boolean;
+	media_index_webhook_url?: string;
+	media_index_webhook_token?: string;
 	favorite_default_path: string;
 	collection_default_path: string;
 	submission_default_path: string;

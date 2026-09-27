@@ -23,8 +23,20 @@ pub struct VideosResponse {
 
 #[derive(Serialize)]
 pub struct VideoResponse {
+    pub metadata: Option<VideoMetadata>,
     pub video: VideoInfo,
     pub pages: Vec<PageInfo>,
+}
+
+#[derive(Serialize, DerivePartialModel, FromQueryResult)]
+#[sea_orm(entity = "video::Entity")]
+pub struct VideoMetadata {
+    pub upper_id: i64,
+    pub upper_face: String,
+    pub intro: String,
+    pub path: String,
+    pub pubtime: DateTime,
+    pub tags: Option<bili_sync_entity::string_vec::StringVec>,
 }
 
 #[derive(Serialize)]

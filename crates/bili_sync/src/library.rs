@@ -1,4 +1,5 @@
-//! Durable per-file receipts. Upload acknowledgement is persisted before STRM generation.
+//! Durable per-file receipts. Upload acknowledgement is persisted before external library notification.
+pub mod cloud_replace;
 pub mod local_replace;
 
 use std::path::{Path, PathBuf};
@@ -6,7 +7,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 
-use crate::config::{CONFIG_DIR, Config};
+use crate::config::CONFIG_DIR;
 
 #[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct SavedQuality {
@@ -102,38 +103,6 @@ async fn invalidate_video_at(directory: &Path, video_id: i32) -> Result<()> {
     Ok(())
 }
 
-pub fn validate(config: &Config) -> Result<()> {
-    if config.strm_base_url.is_empty() {
-        return Ok(());
-    }
-    let url = reqwest::Url::parse(&config.strm_base_url).context("STRM 播放服务地址无效")?;
-    ensure!(
-        matches!(url.scheme(), "http" | "https")
-            && url.host_str().is_some()
-            && url.username().is_empty()
-            && url.password().is_none()
-            && url.query().is_none()
-            && url.fragment().is_none(),
-        "STRM 地址应为播放器可访问的 bili-sync HTTP(S) 地址，不含凭据或查询参数"
-    );
-    Ok(())
-}
-pub async fn write_strm(receipt: &FileReceipt, config: &Config) -> Result<()> {
-    if config.strm_base_url.is_empty() || !receipt.cloud {
-        return Ok(());
-    }
-    validate(config)?;
-    let content = format!(
-        "{}/stream/{}/{}/{}\n",
-        config.strm_base_url.trim_end_matches('/'),
-        receipt.video_id,
-        receipt.cid,
-        receipt.playback_token
-    );
-    atomic_write(&receipt.metadata_path.with_extension("strm"), content.as_bytes())
-        .await
-        .context("视频上传已完成，但 STRM 写入失败；重试将只补写 STRM")
-}
 pub async fn probe(path: &Path, mut quality: SavedQuality) -> Result<SavedQuality> {
     let output = tokio::time::timeout(
         std::time::Duration::from_secs(30),
@@ -172,37 +141,6 @@ pub async fn probe(path: &Path, mut quality: SavedQuality) -> Result<SavedQualit
 mod tests {
     use super::*;
     #[tokio::test]
-    async fn strm_targets_one_file_with_stable_authorization() {
-        let dir = std::env::temp_dir().join(format!("bili-strm-test-{}", uuid::Uuid::new_v4()));
-        tokio::fs::create_dir_all(&dir).await.unwrap();
-        let receipt = FileReceipt {
-            video_id: 12,
-            cid: 34,
-            metadata_path: dir.join("中文视频.mp4"),
-            storage_path: "/115/视频.mp4".into(),
-            cloud: true,
-            cloud_file_id: None,
-            bytes: 100,
-            quality: SavedQuality::default(),
-            uploaded_at: String::new(),
-            playback_token: "file-specific-token".into(),
-        };
-        let config = Config {
-            strm_base_url: "https://bili.example.com".into(),
-            ..Default::default()
-        };
-        write_strm(&receipt, &config).await.unwrap();
-        write_strm(&receipt, &config).await.unwrap();
-        let path = receipt.metadata_path.with_extension("strm");
-        assert_eq!(
-            tokio::fs::read_to_string(&path).await.unwrap(),
-            "https://bili.example.com/stream/12/34/file-specific-token\n"
-        );
-        assert!(!receipt.metadata_path.exists());
-        tokio::fs::remove_file(path).await.unwrap();
-        tokio::fs::remove_dir(dir).await.unwrap();
-    }
-    #[tokio::test]
     async fn reset_invalidates_only_active_receipts_for_the_selected_video() {
         let dir = std::env::temp_dir().join(format!("bili-reset-{}", uuid::Uuid::new_v4()));
         tokio::fs::create_dir_all(&dir).await.unwrap();
@@ -223,21 +161,5 @@ mod tests {
         }
         assert_eq!(count, 4);
         tokio::fs::remove_dir_all(dir).await.unwrap();
-    }
-    #[test]
-    fn rejects_credentials_and_expiring_query_urls() {
-        for value in [
-            "file:///media",
-            "https://user:password@example.com",
-            "https://example.com?token=secret",
-        ] {
-            assert!(
-                validate(&Config {
-                    strm_base_url: value.into(),
-                    ..Default::default()
-                })
-                .is_err()
-            );
-        }
     }
 }

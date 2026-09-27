@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import CircleHelp from '@lucide/svelte/icons/circle-help';
 	import api from '$lib/api';
 	import type { SysInfo, TaskStatus, ApiError } from '$lib/types';
 	import { Button } from '$lib/components/ui/button';
@@ -10,11 +11,16 @@
 	let system = $state<SysInfo | null>(null);
 	let task = $state<TaskStatus | null>(null);
 	let history = $state<{ cpu: number; memory: number; speed: number }[]>([]);
-	let folders = $state<{ name: string; bytes: number; count: number }[]>([]);
+	let folders = $state<{ name: string; bytes: number; count: number; unknown_count: number }[]>([]);
 	let storageError = $state('');
+	let metric = $state<'count' | 'bytes'>('count');
+	let storageLoading = $state(false);
+	let storageSequence = 0;
+	const unknown = $derived(folders.reduce((sum, f) => sum + (f.unknown_count || 0), 0));
+	const measure = (f: { count: number; bytes: number }) => (metric === 'count' ? f.count : f.bytes);
 	let triggering = $state(false);
 	const colors = ['var(--primary)', '#a78bfa', '#f59e0b', '#fb7185', '#38bdf8', '#94a3b8'];
-	const total = $derived(folders.reduce((sum, f) => sum + f.bytes, 0));
+	const total = $derived(folders.reduce((sum, f) => sum + measure(f), 0));
 	const count = $derived(folders.reduce((sum, f) => sum + f.count, 0));
 	const speed = $derived(history.at(-1)?.speed || 0);
 	const pie = $derived.by(() => {
@@ -22,7 +28,7 @@
 		return folders
 			.map((f, i) => {
 				const start = angle;
-				angle += total ? (f.bytes / total) * 360 : 0;
+				angle += total ? (measure(f) / total) * 360 : 0;
 				return `${colors[i % colors.length]} ${start}deg ${angle}deg`;
 			})
 			.join(',');
@@ -43,11 +49,17 @@
 			: '—';
 	}
 	async function storage() {
+		const sequence = ++storageSequence;
+		storageLoading = true;
 		try {
-			folders = (await api.storageSummary()).data;
+			const data = (await api.storageSummary(metric)).data;
+			if (sequence !== storageSequence) return;
+			folders = data;
 			storageError = '';
 		} catch (e) {
-			storageError = (e as ApiError).message;
+			if (sequence === storageSequence) storageError = (e as ApiError).message;
+		} finally {
+			if (sequence === storageSequence) storageLoading = false;
 		}
 	}
 	async function trigger() {
@@ -156,18 +168,64 @@
 		<section class="rounded-xl border bg-card p-5">
 			<div class="flex justify-between">
 				<h2 class="font-semibold">视频分布</h2>
-				<span class="text-muted-foreground text-xs">{count} 个文件</span>
+				<div class="flex items-center gap-2">
+					<div class="flex rounded-md bg-muted p-0.5" aria-label="统计方式">
+						{#each [['count', '个数'], ['bytes', '大小']] as [value, label] (value)}
+							<button
+								class="rounded px-2 py-1 text-xs"
+								class:bg-background={metric === value}
+								class:shadow-sm={metric === value}
+								aria-pressed={metric === value}
+								onclick={() => {
+									metric = value as 'count' | 'bytes';
+									folders = [];
+									void storage();
+								}}>{label}</button
+							>
+						{/each}
+					</div>
+					<details class="relative">
+						<summary
+							class="cursor-pointer list-none text-muted-foreground"
+							aria-label="视频分布统计说明"><CircleHelp class="size-4" /></summary
+						>
+						<div
+							class="absolute right-0 top-7 z-20 w-72 rounded-lg border bg-popover p-3 text-xs leading-relaxed text-popover-foreground shadow-lg"
+						>
+							个数来自本地数据库。大小读取本地视频文件或已有的网盘上传、比对记录，不遍历网盘。<br
+							/><br />
+							网盘旧视频未登记大小时显示「暂无数据」，需先在媒体库中手动选择视频进行比对。画质比对会请求
+							B 站，批量过大或频繁操作可能触发风控，请分批执行。
+						</div>
+					</details>
+				</div>
 			</div>
 			<div class="mt-5 flex flex-wrap items-center gap-5">
 				<div
 					class="relative grid size-36 shrink-0 place-items-center rounded-full"
 					style:background={total ? `conic-gradient(${pie})` : 'var(--muted)'}
 					role="img"
-					aria-label={`已记录视频 ${count} 个，总大小 ${bytes(total)}`}
+					aria-label={metric === 'count'
+						? `视频数量 ${count} 个`
+						: `已知大小 ${bytes(total)}，${unknown} 个视频数据不完整`}
 				>
 					<div class="grid size-24 place-content-center rounded-full bg-card text-center">
-						<strong class="text-lg">{bytes(total)}</strong><span
-							class="text-muted-foreground text-[10px]">已记录视频</span
+						<strong class="text-lg"
+							>{storageLoading
+								? '读取中'
+								: metric === 'count'
+									? count
+									: total
+										? bytes(total)
+										: unknown
+											? '暂无数据'
+											: '0 B'}</strong
+						><span class="text-muted-foreground text-[10px]"
+							>{metric === 'count'
+								? '个视频'
+								: unknown
+									? '已知大小 · 数据不完整'
+									: '视频总大小'}</span
 						>
 					</div>
 				</div>
@@ -178,13 +236,25 @@
 								style:background={colors[i % colors.length]}
 							></span><span class="min-w-0 flex-1 truncate" title={folder.name}>{folder.name}</span
 							><span class="text-muted-foreground tabular-nums"
-								>{folder.count} 个 · {bytes(folder.bytes)}</span
+								>{metric === 'count'
+									? `${folder.count} 个`
+									: folder.unknown_count
+										? folder.bytes
+											? `已知 ${bytes(folder.bytes)}`
+											: '暂无数据'
+										: bytes(folder.bytes)}</span
 							>
-						</li>{:else}<li class="text-muted-foreground text-xs">视频保存后自动记录</li>{/each}
+						</li>{:else}<li class="text-muted-foreground text-xs">
+							{storageLoading ? '正在读取统计…' : '暂无视频记录'}
+						</li>{/each}
 				</ul>
 			</div>
 			<p class="text-muted-foreground mt-5 text-xs">
-				按本地保存记录汇总。旧视频尚未登记的大小未统计；不扫描网盘目录。
+				{metric === 'count'
+					? '按文件夹统计视频数量，包含已有视频记录。'
+					: unknown
+						? `${unknown} 个视频的大小暂无完整数据；图中仅展示已知大小。`
+						: '本地文件与已保存的网盘记录汇总，不扫描网盘目录。'}
 			</p>
 			{#if storageError}<p class="text-destructive mt-2 text-xs">{storageError}</p>{/if}
 		</section>

@@ -281,6 +281,7 @@ pub async fn remove_video_source(
     Extension(db): Extension<DatabaseConnection>,
 ) -> Result<ApiResponse<bool>, ApiError> {
     let _guard = crate::task::DownloadTaskManager::get().try_library_lock()?;
+    crate::library::cloud_replace::ensure_no_pending().await?;
     // 不允许删除稍后再看
     let video_source: Option<VideoSourceEnum> = match source_type.as_str() {
         "collections" => collection::Entity::find_by_id(id).one(&db).await?.map(Into::into),
@@ -394,6 +395,7 @@ pub async fn full_sync_video_source(
     Json(request): Json<FullSyncVideoSourceRequest>,
 ) -> Result<ApiResponse<FullSyncVideoSourceResponse>, ApiError> {
     let _guard = crate::task::DownloadTaskManager::get().try_library_lock()?;
+    crate::library::cloud_replace::ensure_no_pending().await?;
     let video_source: Option<VideoSourceEnum> = match source_type.as_str() {
         "collections" => collection::Entity::find_by_id(id).one(&db).await?.map(Into::into),
         "favorites" => favorite::Entity::find_by_id(id).one(&db).await?.map(Into::into),

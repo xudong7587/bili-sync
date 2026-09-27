@@ -176,7 +176,7 @@
 		><Button
 			variant="outline"
 			disabled={loading || !selected.length || busy || job?.running}
-			onclick={() => run('strm')}>补写 STRM</Button
+			onclick={() => run('notify')}>通知 MediaIndex</Button
 		>
 		<p class="text-muted-foreground text-xs">
 			升级先验证实际文件，保留旧版本。旧视频缺少本地记录时，仅核对所选文件的实际画质。

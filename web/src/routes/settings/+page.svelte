@@ -103,7 +103,12 @@
 		try {
 			const response = await api.getConfig();
 			config = response.data;
-			formData = { ...config };
+			formData = {
+				media_index_webhook_enabled: false,
+				media_index_webhook_url: '',
+				media_index_webhook_token: '',
+				...config
+			};
 			formData.storage_mode ??= 'auto';
 
 			formData.refresh_schedule ??= {
@@ -1048,16 +1053,45 @@
 							path={formData.cd2_save_path}
 						/>
 
-						<div class="space-y-2 rounded-xl border p-5">
-							<Label for="strm-url">STRM 播放服务地址</Label><Input
-								id="strm-url"
-								bind:value={formData.strm_base_url}
-								placeholder="https://bili-sync.example.com"
-							/>
-							<p class="text-muted-foreground text-sm">
-								填写播放器可以访问的本服务地址。上传完成后，在对应的本地元数据目录生成同名
-								STRM，无需扫描目录。留空关闭自动生成。
-							</p>
+						<div class="space-y-4 rounded-xl border p-5">
+							<div class="flex items-center justify-between gap-3">
+								<div>
+									<h3 class="font-semibold">STRM 入库联动</h3>
+									<p class="mt-1 text-sm text-muted-foreground">
+										CD2 确认上传完成后，通知 MediaIndex 生成 STRM。
+									</p>
+								</div>
+								<Switch
+									aria-label="启用 MediaIndex 通知"
+									bind:checked={formData.media_index_webhook_enabled}
+								/>
+							</div>
+							{#if formData.media_index_webhook_enabled}
+								<div class="space-y-2">
+									<Label for="media-index-url">MediaIndex Webhook URL</Label><Input
+										id="media-index-url"
+										bind:value={formData.media_index_webhook_url}
+										placeholder="粘贴 MediaIndex 生成的完整 URL"
+									/>
+								</div>
+								<div class="space-y-2">
+									<Label for="media-index-token">令牌（可选）</Label><Input
+										id="media-index-token"
+										type="password"
+										bind:value={formData.media_index_webhook_token}
+										placeholder="URL 已含 token 时可留空"
+									/>
+								</div>
+								<p class="text-xs leading-relaxed text-muted-foreground">
+									发送完成事件，扫描目录与 STRM 输出位置由 MediaIndex 的 Webhook
+									连接设置决定。请确保网盘目录与本地元数据目录的相对结构一致。失败通知会保留并在后续检查时重试。
+								</p>
+							{/if}
+							<div class="rounded-lg bg-muted/60 p-3 text-xs leading-relaxed text-muted-foreground">
+								没有 MediaIndex？可自行配置其他 STRM 工具，例如 MP 的 115STRM 插件，通过 115
+								生活事件扫描或定时增量扫描生成 STRM。bili-sync
+								负责上传视频和保存元数据，播放链接与播放服务由所选工具管理。
+							</div>
 						</div>
 					{/if}
 				</Tabs.Content>

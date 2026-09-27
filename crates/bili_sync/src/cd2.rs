@@ -197,6 +197,48 @@ impl Cd2Client {
         Ok(output)
     }
 
+    /// Resolve an exact child from a refreshed directory listing, never treating lookup errors as absence.
+    pub async fn confirmed_id(&self, path: &str) -> Result<Option<String>> {
+        let (parent, name) = path.rsplit_once('/').context("invalid cloud path")?;
+        let files = self.list_directory(parent, true).await?;
+        match files.into_iter().find(|f| f.name == name) {
+            Some(file) => {
+                ensure!(file.is_cloud_file && !file.id.is_empty(), "云端文件尚未确认，停止替换");
+                Ok(Some(file.id))
+            }
+            None => Ok(None),
+        }
+    }
+
+    pub async fn rename_confirmed(&self, path: &str, new_name: &str, expected_id: &str) -> Result<()> {
+        ensure!(
+            !new_name.is_empty() && !new_name.contains('/') && !new_name.contains('\\'),
+            "无效的新文件名"
+        );
+        let parent = path.rsplit_once('/').context("invalid cloud path")?.0;
+        let target = format!("{parent}/{new_name}");
+        ensure!(
+            self.confirmed_id(path).await?.as_deref() == Some(expected_id),
+            "云端源文件身份变化，停止替换"
+        );
+        ensure!(self.confirmed_id(&target).await?.is_none(), "云端目标已存在，停止替换");
+        let result: FileOperationResult = self
+            .call_one(
+                "RenameFile",
+                &RenameFileRequest {
+                    path: path.into(),
+                    new_name: new_name.into(),
+                },
+            )
+            .await?;
+        ensure!(result.success, "CD2 重命名未确认成功，替换日志已保留");
+        ensure!(
+            self.confirmed_id(&target).await?.as_deref() == Some(expected_id),
+            "CD2 重命名后文件身份未确认，稍后恢复"
+        );
+        Ok(())
+    }
+
     pub async fn upload(&self, local_file: &Path, metadata_file: &Path) -> Result<()> {
         let remote_file = self.remote_path(metadata_file)?;
         let (remote_dir, file_name) = remote_file.rsplit_once('/').context("CD2 目标路径无效")?;
@@ -584,6 +626,14 @@ struct FileOperationResult {
     success: bool,
     #[prost(string, tag = "2")]
     error_message: String,
+}
+// CloudDrive.proto: RenameFileRequest.theFilePath=1, newName=2.
+#[derive(Clone, PartialEq, Message)]
+struct RenameFileRequest {
+    #[prost(string, tag = "1")]
+    path: String,
+    #[prost(string, tag = "2")]
+    new_name: String,
 }
 #[derive(Clone, PartialEq, Message)]
 struct CreateFileRequest {

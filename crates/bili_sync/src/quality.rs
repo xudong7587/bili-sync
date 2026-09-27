@@ -112,7 +112,7 @@ fn verified(old: &SavedQuality, new: &SavedQuality) -> bool {
 
 pub async fn start(db: sea_orm::DatabaseConnection, client: Arc<BiliClient>, mut request: BatchRequest) -> Result<()> {
     ensure!(
-        matches!(request.action.as_str(), "check" | "upgrade" | "strm"),
+        matches!(request.action.as_str(), "check" | "upgrade" | "notify" | "strm"),
         "未知画质操作"
     );
     request.page_ids.sort_unstable();
@@ -134,7 +134,17 @@ pub async fn start(db: sea_orm::DatabaseConnection, client: Arc<BiliClient>, mut
     tokio::spawn(async move {
         let _guard = guard;
         let config = VersionedConfig::get().snapshot();
-        if request.action != "strm" {
+        if let Err(error) = library::cloud_replace::recover(&config).await {
+            let mut job = JOB.lock();
+            job.running = false;
+            job.results.push(JobResult {
+                page_id: request.page_ids[0],
+                success: false,
+                message: format!("云端替换待恢复：{error:#}"),
+            });
+            return;
+        }
+        if request.action != "strm" && request.action != "notify" {
             let setup = async {
                 let key = client
                     .wbi_img(&config.credential)
@@ -177,6 +187,13 @@ pub async fn start(db: sea_orm::DatabaseConnection, client: Arc<BiliClient>, mut
             }
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         }
+        if let Err(error) = crate::media_index::flush_pending().await {
+            JOB.lock().results.push(JobResult {
+                page_id: 0,
+                success: false,
+                message: format!("视频已保留，MediaIndex 通知待重试：{error:#}"),
+            });
+        }
         JOB.lock().running = false;
     });
     Ok(())
@@ -184,6 +201,22 @@ pub async fn start(db: sea_orm::DatabaseConnection, client: Arc<BiliClient>, mut
 
 async fn baseline(video: &video::Model, page: &page::Model, config: &Config) -> Result<FileReceipt> {
     if let Some(mut receipt) = library::load(video.id, page.cid).await? {
+        if receipt.cloud {
+            let cd2 = crate::cd2::Cd2Client::connection(config)?.context("CD2 未配置")?;
+            let id = cd2.file_id(&receipt.storage_path).await?;
+            ensure!(
+                receipt.cloud_file_id.as_ref().is_none_or(|saved| saved == &id),
+                "云端文件身份已变化，请核对现有记录"
+            );
+            let bytes = cd2.existing_size(&receipt.storage_path).await?;
+            ensure!(
+                receipt.bytes == 0 || receipt.bytes == bytes,
+                "云端文件大小已变化，请核对现有记录"
+            );
+            receipt.cloud_file_id = Some(id);
+            receipt.bytes = bytes;
+            library::save(&receipt).await?;
+        }
         if receipt.quality.width.is_none() || receipt.quality.duration.is_none() {
             let target = if receipt.cloud {
                 let cd2 = crate::cd2::Cd2Client::connection(config)?.context("CD2 未配置")?;
@@ -221,12 +254,22 @@ async fn baseline(video: &video::Model, page: &page::Model, config: &Config) -> 
             library::probe(&local, SavedQuality::default()).await?,
         )
     };
+    let cloud_file_id = if cloud {
+        Some(
+            crate::cd2::Cd2Client::connection(config)?
+                .context("CD2 未配置")?
+                .file_id(&storage_path)
+                .await?,
+        )
+    } else {
+        None
+    };
     let receipt = FileReceipt {
         video_id: video.id,
         cid: page.cid,
         storage_path,
         cloud,
-        cloud_file_id: None,
+        cloud_file_id,
         bytes,
         metadata_path: metadata,
         quality,
@@ -294,15 +337,19 @@ async fn process(
         .await?
         .context("视频不存在")?;
     ensure!(((page.download_status >> 3) & 7) == 7, "视频尚未下载完成");
-    let old = baseline(&video, &page, config).await?;
-    if action == "strm" {
+    if action == "notify" || action == "strm" {
         ensure!(
-            old.cloud && !config.strm_base_url.is_empty(),
-            "请先启用 STRM，且视频需要有云端上传记录"
+            config.media_index_webhook_enabled && !config.media_index_webhook_url.trim().is_empty(),
+            "请先在网盘分流中配置 MediaIndex Webhook"
         );
-        library::write_strm(&old, config).await?;
-        return Ok("STRM 已补写".into());
+        let receipt = library::load(video.id, page.cid)
+            .await?
+            .context("暂无上传记录，请先比对确认云端视频")?;
+        ensure!(receipt.cloud, "本地视频无需生成 STRM");
+        crate::media_index::mark_pending().await?;
+        return Ok("已加入 MediaIndex 通知队列".into());
     }
+    let old = baseline(&video, &page, config).await?;
     let (streams, proposed) = candidate(client, config, &video, &page).await?;
     let mut comparison = Comparison {
         video_id: Some(video.id),
@@ -357,27 +404,7 @@ async fn process(
         new.bytes = tokio::fs::metadata(temporary.file_path()).await?.len();
         new.uploaded_at = chrono::Utc::now().to_rfc3339();
         if old.cloud {
-            let backup_receipt = CONFIG_DIR.join("library").join(format!(
-                "{}-{}-backup-{}.json",
-                video.id,
-                page.cid,
-                uuid::Uuid::new_v4()
-            ));
-            library::atomic_write(&backup_receipt, &serde_json::to_vec(&old)?).await?;
-            ensure!(!config.strm_base_url.is_empty(), "云端升级需要先配置本服务 STRM 地址");
-            let cd2 = crate::cd2::Cd2Client::connection(config)?.context("CD2 未配置")?;
-            let version_path = old.metadata_path.with_file_name(format!(
-                "bili-{}-{}-{}.mp4",
-                video.id,
-                page.cid,
-                uuid::Uuid::new_v4().simple()
-            ));
-            cd2.upload(temporary.file_path(), &version_path).await?;
-            new.storage_path = cd2.remote_path(&version_path)?;
-            new.cloud_file_id = cd2.file_id(&new.storage_path).await.ok();
-            // Commit only after upload is confirmed; existing STRM points to the same stable token.
-            library::write_strm(&old, config).await?;
-            library::save(&new).await?;
+            library::cloud_replace::replace(temporary.file_path(), &old, &mut new, config).await?;
         } else {
             library::local_replace::replace(temporary.file_path(), &old, &new).await?;
         }

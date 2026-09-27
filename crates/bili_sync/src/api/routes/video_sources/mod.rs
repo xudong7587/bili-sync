@@ -193,9 +193,15 @@ pub async fn get_video_sources_default_path(
         _ => return Err(InnerApiError::BadRequest("Invalid video source type".to_string()).into()),
     };
     let template = TEMPLATE.read();
-    Ok(ApiResponse::ok(
-        template.path_safe_render(template_name, &serde_json::to_value(params)?)?,
-    ))
+    let rendered = template.path_safe_render(template_name, &serde_json::to_value(params)?)?;
+    // Legacy templates may omit the root. Keep explicitly configured absolute paths.
+    let path = if FsPath::new(&rendered).is_absolute() {
+        rendered
+    } else {
+        let root = std::env::var("BILI_SYNC_METADATA_ROOT").unwrap_or_else(|_| "/media".to_owned());
+        FsPath::new(&root).join(rendered).to_string_lossy().into_owned()
+    };
+    Ok(ApiResponse::ok(path))
 }
 
 /// 更新视频来源
@@ -473,7 +479,9 @@ pub async fn insert_favorite(
         f_id: Set(favorite_info.id),
         name: Set(favorite_info.title.clone()),
         path: Set(request.path),
-        enabled: Set(false),
+        enabled: Set(request.enabled),
+        rule: Set(request.rule),
+        filter_option: Set(request.filter_option.map(serde_json::to_value).transpose()?),
         ..Default::default()
     })
     .exec(&db)
@@ -504,7 +512,9 @@ pub async fn insert_collection(
         r#type: Set(collection_info.collection_type.into()),
         name: Set(collection_info.name.clone()),
         path: Set(request.path),
-        enabled: Set(false),
+        enabled: Set(request.enabled),
+        rule: Set(request.rule),
+        filter_option: Set(request.filter_option.map(serde_json::to_value).transpose()?),
         ..Default::default()
     })
     .exec(&db)
@@ -526,7 +536,9 @@ pub async fn insert_submission(
         upper_id: Set(upper.mid.parse()?),
         upper_name: Set(upper.name),
         path: Set(request.path),
-        enabled: Set(false),
+        enabled: Set(request.enabled),
+        rule: Set(request.rule),
+        filter_option: Set(request.filter_option.map(serde_json::to_value).transpose()?),
         ..Default::default()
     })
     .exec(&db)

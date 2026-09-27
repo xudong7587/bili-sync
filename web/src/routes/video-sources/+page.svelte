@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { page } from '$app/stores';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Switch } from '$lib/components/ui/switch/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
@@ -25,6 +26,7 @@
 	import { setBreadcrumb } from '$lib/stores/breadcrumb';
 	import type {
 		ApiError,
+		Followed,
 		FilterOption,
 		VideoSourceDetail,
 		VideoSourcesDetailsResponse,
@@ -45,6 +47,10 @@
 	let showAddDialog = false;
 	let addDialogType: 'favorites' | 'collections' | 'submissions' = 'favorites';
 	let adding = false;
+	let addEnabled = true;
+	let addRule: Rule | null = null;
+	let addCustomQuality = false;
+	let addFilterOption: FilterOption | null = null;
 
 	// 编辑对话框状态
 	let showEditDialog = false;
@@ -87,6 +93,46 @@
 	let favoriteForm = { fid: '', path: '' };
 	let collectionForm = { sid: '', mid: '', collection_type: '2', path: '' }; // 默认为合集
 	let submissionForm = { upper_id: '', path: '' };
+
+	let upperKeyword = '';
+	let upperResults: Followed[] = [];
+	let searchingUppers = false;
+	let upperSearchPage = 1;
+	let upperSearchTotal = 0;
+	let upperSearchError = '';
+	let upperSearchId = 0;
+	async function searchUppers(pageNumber = 1) {
+		if (!upperKeyword.trim()) return;
+		const requestId = ++upperSearchId;
+		searchingUppers = true;
+		upperSearchError = '';
+		upperResults = [];
+		try {
+			const response = await api.searchUppers(upperKeyword.trim(), pageNumber);
+			if (requestId !== upperSearchId) return;
+			upperResults = response.data.uppers;
+			upperSearchTotal = response.data.total;
+			upperSearchPage = pageNumber;
+			if (!upperResults.length)
+				upperSearchError = '没有找到匹配的 UP 主，可换个名称或直接输入 UID。';
+		} catch (error) {
+			if (requestId === upperSearchId) upperSearchError = (error as ApiError).message;
+		} finally {
+			if (requestId === upperSearchId) searchingUppers = false;
+		}
+	}
+	async function chooseUpper(upper: Followed) {
+		if (upper.type !== 'upper') return;
+		submissionForm.upper_id = String(upper.mid);
+		upperKeyword = upper.uname;
+		if (!submissionForm.path.trim()) {
+			try {
+				submissionForm.path = (await api.getDefaultPath('submissions', upper.uname)).data;
+			} catch (error) {
+				toast.error('获取默认目录失败', { description: (error as ApiError).message });
+			}
+		}
+	}
 
 	const TAB_CONFIG = {
 		favorites: { label: '收藏夹', icon: HeartIcon },
@@ -280,6 +326,16 @@
 	// 打开添加对话框
 	function openAddDialog(type: 'favorites' | 'collections' | 'submissions') {
 		addDialogType = type;
+		upperSearchId++;
+		upperKeyword = '';
+		upperResults = [];
+		upperSearchError = '';
+		searchingUppers = false;
+		upperSearchTotal = 0;
+		addEnabled = true;
+		addRule = null;
+		addCustomQuality = false;
+		addFilterOption = globalFilterOption ? structuredClone(globalFilterOption) : null;
 		// 重置表单
 		favoriteForm = { fid: '', path: '' };
 		collectionForm = { sid: '', mid: '', collection_type: '2', path: '' };
@@ -290,6 +346,11 @@
 	// 处理添加
 	async function handleAdd() {
 		adding = true;
+		const options = {
+			enabled: addEnabled,
+			rule: addRule,
+			filter_option: addCustomQuality ? addFilterOption : null
+		};
 		try {
 			switch (addDialogType) {
 				case 'favorites':
@@ -298,6 +359,7 @@
 						return;
 					}
 					await api.insertFavorite({
+						...options,
 						fid: parseInt(favoriteForm.fid),
 						path: favoriteForm.path
 					});
@@ -308,6 +370,7 @@
 						return;
 					}
 					await api.insertCollection({
+						...options,
 						sid: parseInt(collectionForm.sid),
 						mid: parseInt(collectionForm.mid),
 						collection_type: parseInt(collectionForm.collection_type),
@@ -320,6 +383,7 @@
 						return;
 					}
 					await api.insertSubmission({
+						...options,
 						upper_id: parseInt(submissionForm.upper_id),
 						path: submissionForm.path
 					});
@@ -341,8 +405,28 @@
 	// 初始化
 	onMount(() => {
 		setBreadcrumb([{ label: '视频源' }]);
-		loadVideoSources();
+		void initialize();
 	});
+	async function initialize() {
+		await loadVideoSources();
+		const params = $page.url.searchParams;
+		const type = params.get('add');
+		if (type !== 'favorites' && type !== 'collections' && type !== 'submissions') return;
+		activeTab = type;
+		openAddDialog(type);
+		favoriteForm.fid = params.get('fid') ?? '';
+		collectionForm.sid = params.get('sid') ?? '';
+		collectionForm.mid = params.get('mid') ?? '';
+		submissionForm.upper_id = params.get('mid') ?? '';
+		try {
+			const path = (await api.getDefaultPath(type, params.get('name') ?? '')).data;
+			if (type === 'favorites') favoriteForm.path = path;
+			else if (type === 'collections') collectionForm.path = path;
+			else submissionForm.path = path;
+		} catch (error) {
+			toast.error('获取默认目录失败', { description: (error as ApiError).message });
+		}
+	}
 </script>
 
 <svelte:head>
@@ -568,7 +652,7 @@
 			<div class="mt-6 space-y-6">
 				<!-- 下载路径 -->
 				<div>
-					<Label for="edit-path" class="text-sm font-medium">下载路径</Label>
+					<Label for="edit-path" class="text-sm font-medium">本地元数据目录</Label>
 					<Input
 						id="edit-path"
 						type="text"
@@ -727,7 +811,7 @@
 
 	<!-- 添加对话框 -->
 	<Dialog.Root bind:open={showAddDialog}>
-		<Dialog.Content>
+		<Dialog.Content class="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
 			<Dialog.Title class="text-lg font-semibold">
 				{#if addDialogType === 'favorites'}
 					添加收藏夹
@@ -797,7 +881,63 @@
 				{:else}
 					<div class="space-y-4">
 						<div>
-							<Label for="upper_id" class="text-sm font-medium">UP主ID (mid)</Label>
+							<Label for="upper-search">搜索 UP 主名称</Label>
+							<div class="my-2 flex gap-2">
+								<Input
+									id="upper-search"
+									bind:value={upperKeyword}
+									placeholder="名称模糊搜索"
+									onkeydown={(event) => {
+										if (event.key === 'Enter') {
+											event.preventDefault();
+											void searchUppers();
+										}
+									}}
+								/><Button
+									variant="outline"
+									disabled={searchingUppers || !upperKeyword.trim()}
+									onclick={() => searchUppers()}>{searchingUppers ? '搜索中…' : '搜索'}</Button
+								>
+							</div>
+							{#if upperSearchError}<p class="text-muted-foreground py-2 text-sm" role="status">
+									{upperSearchError}
+								</p>{/if}
+							{#if upperResults.length}<div class="mb-4 max-h-64 overflow-y-auto rounded-lg border">
+									{#each upperResults as upper}
+										{#if upper.type === 'upper'}<button
+												class="flex w-full items-center justify-between gap-3 border-b p-3 text-left hover:bg-accent"
+												onclick={() => chooseUpper(upper)}
+												aria-pressed={String(upper.mid) === String(submissionForm.upper_id)}
+											>
+												<span class="min-w-0"
+													><span class="block font-medium">{upper.uname}</span><span
+														class="text-muted-foreground block truncate text-xs"
+														>UID {upper.mid} · {upper.sign}</span
+													></span
+												><span class="shrink-0 text-xs"
+													>{String(upper.mid) === String(submissionForm.upper_id)
+														? '已选择'
+														: upper.subscribed
+															? '已订阅'
+															: '选择'}</span
+												>
+											</button>{/if}
+									{/each}
+								</div>
+								<div class="mb-4 flex items-center justify-between gap-2 text-sm">
+									<Button
+										variant="outline"
+										disabled={searchingUppers || upperSearchPage <= 1}
+										onclick={() => searchUppers(upperSearchPage - 1)}>上一页</Button
+									><span>第 {upperSearchPage} 页 · {upperSearchTotal} 位</span><Button
+										variant="outline"
+										disabled={searchingUppers ||
+											upperSearchPage * 20 >= upperSearchTotal ||
+											upperSearchPage >= 50}
+										onclick={() => searchUppers(upperSearchPage + 1)}>下一页</Button
+									>
+								</div>{/if}
+							<Label for="upper_id" class="text-sm font-medium">UP 主 UID（也可直接填写）</Label>
 							<Input
 								id="upper_id"
 								type="number"
@@ -809,7 +949,7 @@
 					</div>
 				{/if}
 				<div class="mt-4">
-					<Label for="path" class="text-sm font-medium">下载路径</Label>
+					<Label for="path" class="text-sm font-medium">本地元数据目录</Label>
 					{#if addDialogType === 'favorites'}
 						<Input
 							id="path"
@@ -836,6 +976,24 @@
 						/>
 					{/if}
 				</div>
+			</div>
+			<div class="mt-6 space-y-6 border-t pt-6">
+				<div class="flex items-center gap-3">
+					<Switch id="add-enabled" bind:checked={addEnabled} /><Label for="add-enabled"
+						>保存后启用追更</Label
+					>
+				</div>
+				<RuleEditor rule={addRule} onRuleChange={(rule) => (addRule = rule)} />
+				<div class="flex items-center gap-3">
+					<Switch id="add-quality" bind:checked={addCustomQuality} /><Label for="add-quality"
+						>为此订阅单独设置画质</Label
+					>
+				</div>
+				{#if addCustomQuality && addFilterOption}<FilterOptionEditor
+						bind:value={addFilterOption}
+					/>{:else}<p class="text-muted-foreground text-sm">
+						使用全局画质偏好，可随时在视频源中调整。
+					</p>{/if}
 			</div>
 			<div class="mt-6 flex justify-end gap-2">
 				<Button

@@ -12,7 +12,7 @@ use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QuerySe
 use crate::api::request::{FollowedCollectionsRequest, FollowedUppersRequest};
 use crate::api::response::{CollectionsResponse, FavoritesResponse, Followed, UppersResponse};
 use crate::api::wrapper::{ApiError, ApiResponse};
-use crate::bilibili::{BiliClient, Me};
+use crate::bilibili::{BiliClient, ErrorForStatusExt, MIXIN_KEY, Me, Validate, WbiSign};
 use crate::config::VersionedConfig;
 
 pub(super) fn router() -> Router {
@@ -20,6 +20,7 @@ pub(super) fn router() -> Router {
         .route("/me/favorites", get(get_created_favorites))
         .route("/me/collections", get(get_followed_collections))
         .route("/me/uppers", get(get_followed_uppers))
+        .route("/uppers/search", get(search_uppers))
 }
 
 /// 获取当前用户创建的收藏夹
@@ -185,5 +186,71 @@ pub async fn get_followed_uppers(
     Ok(ApiResponse::ok(UppersResponse {
         uppers,
         total: bili_uppers.total,
+    }))
+}
+
+#[derive(serde::Deserialize)]
+pub struct UpperSearchRequest {
+    pub keyword: String,
+    pub page: Option<u32>,
+}
+
+/// Explicit, paginated searches share the normal Bilibili request limiter.
+async fn search_uppers(
+    Extension(db): Extension<DatabaseConnection>,
+    Extension(client): Extension<Arc<BiliClient>>,
+    Query(params): Query<UpperSearchRequest>,
+) -> Result<ApiResponse<UppersResponse>, ApiError> {
+    let keyword = params.keyword.trim();
+    if keyword.is_empty() || keyword.chars().count() > 100 || !(1..=50).contains(&params.page.unwrap_or(1)) {
+        return Err(
+            crate::api::error::InnerApiError::BadRequest("请输入 1–100 字的 UP 名称，页码为 1–50".into()).into(),
+        );
+    }
+    let credential = &VersionedConfig::get().read().credential;
+    let response = client
+        .request(
+            reqwest::Method::GET,
+            "https://api.bilibili.com/x/web-interface/wbi/search/type",
+            credential,
+        )
+        .await
+        .query(&[("search_type", "bili_user"), ("keyword", keyword)])
+        .query(&[("page", params.page.unwrap_or(1))])
+        .wbi_sign(MIXIN_KEY.load().as_deref())?
+        .send()
+        .await?
+        .error_for_status_ext()?
+        .json::<serde_json::Value>()
+        .await?
+        .validate()?;
+    let items = response["data"]["result"].as_array().cloned().unwrap_or_default();
+    let mids: Vec<i64> = items.iter().filter_map(|item| item["mid"].as_i64()).collect();
+    let subscribed: HashSet<i64> = submission::Entity::find()
+        .select_only()
+        .column(submission::Column::UpperId)
+        .filter(submission::Column::UpperId.is_in(mids))
+        .into_tuple()
+        .all(&db)
+        .await?
+        .into_iter()
+        .collect();
+    let uppers = items
+        .into_iter()
+        .filter_map(|item| {
+            let mid = item["mid"].as_i64()?;
+            Some(Followed::Upper {
+                mid,
+                uname: item["uname"].as_str()?.to_owned(),
+                face: item["upic"].as_str().unwrap_or_default().to_owned(),
+                sign: item["usign"].as_str().unwrap_or_default().to_owned(),
+                invalid: false,
+                subscribed: subscribed.contains(&mid),
+            })
+        })
+        .collect();
+    Ok(ApiResponse::ok(UppersResponse {
+        uppers,
+        total: response["data"]["numResults"].as_i64().unwrap_or(0),
     }))
 }

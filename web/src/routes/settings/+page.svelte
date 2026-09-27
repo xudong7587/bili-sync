@@ -1,5 +1,9 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
+	import { page } from '$app/stores';
+	import { themes, applyTheme, getTheme } from '$lib/theme';
+	let selectedTheme = getTheme();
+	$: section = $page.url.searchParams.get('section') || 'basic';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
@@ -100,6 +104,12 @@
 			config = response.data;
 			formData = { ...config };
 
+			formData.refresh_schedule ??= {
+				start: '',
+				end: '',
+				jitter_min_seconds: 0,
+				jitter_max_seconds: 0
+			};
 			// 根据 interval 的类型初始化输入框
 			if (typeof formData.interval === 'number') {
 				intervalInput = String(formData.interval);
@@ -289,16 +299,7 @@
 		</div>
 	{:else if formData}
 		<div class="space-y-6">
-			<Tabs.Root value="basic" class="w-full">
-				<Tabs.List class="grid w-full grid-cols-6">
-					<Tabs.Trigger value="basic">基本设置</Tabs.Trigger>
-					<Tabs.Trigger value="auth">B站认证</Tabs.Trigger>
-					<Tabs.Trigger value="filter">视频处理</Tabs.Trigger>
-					<Tabs.Trigger value="danmaku">弹幕渲染</Tabs.Trigger>
-					<Tabs.Trigger value="notifiers">通知设置</Tabs.Trigger>
-					<Tabs.Trigger value="advanced">高级设置</Tabs.Trigger>
-				</Tabs.List>
-
+			<Tabs.Root value={section} class="w-full">
 				<!-- 基本设置 -->
 				<Tabs.Content value="basic" class="mt-6 space-y-6">
 					<div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -413,6 +414,56 @@
 										</p>
 									</Tooltip.Content>
 								</Tooltip.Root>
+							</div>
+						</div>
+					</div>
+					<div class="space-y-4 rounded-xl border p-5">
+						<div>
+							<h3 class="font-semibold">自动刷新时间段</h3>
+							<p class="text-muted-foreground mt-1 text-sm">
+								按容器本地时区执行。留空或起止相同表示全天；支持跨午夜。手动刷新立即执行。
+							</p>
+						</div>
+						<div class="grid grid-cols-2 gap-4">
+							<div class="space-y-2">
+								<Label for="refresh-start">开始</Label><Input
+									id="refresh-start"
+									type="time"
+									bind:value={formData.refresh_schedule.start}
+								/>
+							</div>
+							<div class="space-y-2">
+								<Label for="refresh-end">结束</Label><Input
+									id="refresh-end"
+									type="time"
+									bind:value={formData.refresh_schedule.end}
+								/>
+							</div>
+						</div>
+						<div>
+							<h3 class="font-semibold">随机间隙</h3>
+							<p class="text-muted-foreground mt-1 text-sm">
+								每次自动触发后随机等待，再检查是否仍在时间段内。设置为 0 可关闭。
+							</p>
+						</div>
+						<div class="grid grid-cols-2 gap-4">
+							<div class="space-y-2">
+								<Label for="jitter-min">最短等待（秒）</Label><Input
+									id="jitter-min"
+									type="number"
+									min={0}
+									max={86400}
+									bind:value={formData.refresh_schedule.jitter_min_seconds}
+								/>
+							</div>
+							<div class="space-y-2">
+								<Label for="jitter-max">最长等待（秒）</Label><Input
+									id="jitter-max"
+									type="number"
+									min={0}
+									max={86400}
+									bind:value={formData.refresh_schedule.jitter_max_seconds}
+								/>
 							</div>
 						</div>
 					</div>
@@ -799,44 +850,6 @@
 
 					<Separator />
 
-					<div class="space-y-4">
-						<div>
-							<h3 class="text-lg font-semibold">CloudDrive2 直传 115</h3>
-							<p class="text-muted-foreground text-sm">
-								填写三项后，新视频先下载到容器临时目录，再经 CD2 上传到
-								115。确认云端上传任务完成后才通知 MediaIndex；NFO 和图片仍保存在
-								/media。留空三项则保持原存储方式。
-							</p>
-						</div>
-						<div class="space-y-2">
-							<Label for="cd2-url">CD2 地址</Label>
-							<Input
-								id="cd2-url"
-								placeholder="http://clouddrive2:19798/"
-								bind:value={formData.cd2_url}
-							/>
-						</div>
-						<div class="space-y-2">
-							<Label for="cd2-token">CD2 API 令牌</Label>
-							<PasswordInput
-								id="cd2-token"
-								placeholder="粘贴 CD2 API 令牌"
-								bind:value={formData.cd2_token}
-							/>
-						</div>
-						<div class="space-y-2">
-							<Label for="cd2-save-path">115 保存根目录（CD2 内路径）</Label>
-							<Input
-								id="cd2-save-path"
-								placeholder="/115/媒体库/08Bilibili"
-								bind:value={formData.cd2_save_path}
-							/>
-							<p class="text-muted-foreground text-xs">
-								/media 下的相对目录会原样追加到这里；请与 MediaIndex 的 115 扫描根目录对应。
-							</p>
-						</div>
-					</div>
-
 					<Separator />
 
 					<div class="space-y-4">
@@ -996,6 +1009,79 @@
 								</p>
 							</div>
 						</div>
+					</div>
+				</Tabs.Content>
+				<Tabs.Content value="cloud" class="mt-6 space-y-6">
+					<div class="space-y-4">
+						<div>
+							<h3 class="text-lg font-semibold">CloudDrive2 直传 115</h3>
+							<p class="text-muted-foreground text-sm">
+								填写三项后，新视频先下载到容器临时目录，再经 CD2 上传到 115。确认云端上传完成后生成
+								STRM；NFO 和图片仍保存在 /media。留空三项则保持原存储方式。
+							</p>
+						</div>
+						<div class="space-y-2">
+							<Label for="cd2-url">CD2 地址</Label>
+							<Input
+								id="cd2-url"
+								placeholder="http://clouddrive2:19798/"
+								bind:value={formData.cd2_url}
+							/>
+						</div>
+						<div class="space-y-2">
+							<Label for="cd2-token">CD2 API 令牌</Label>
+							<PasswordInput
+								id="cd2-token"
+								placeholder="粘贴 CD2 API 令牌"
+								bind:value={formData.cd2_token}
+							/>
+						</div>
+						<div class="space-y-2">
+							<Label for="cd2-save-path">115 保存根目录（CD2 内路径）</Label>
+							<Input
+								id="cd2-save-path"
+								placeholder="/115/媒体库/08Bilibili"
+								bind:value={formData.cd2_save_path}
+							/>
+							<p class="text-muted-foreground text-xs">
+								/media 下的相对目录会原样追加到这里，云端视频与本地元数据保持相同结构。
+							</p>
+						</div>
+					</div>
+
+					<div class="space-y-2 rounded-xl border p-5">
+						<Label for="strm-url">STRM 播放服务地址</Label><Input
+							id="strm-url"
+							bind:value={formData.strm_base_url}
+							placeholder="https://bili-sync.example.com"
+						/>
+						<p class="text-muted-foreground text-sm">
+							填写播放器可以访问的本服务地址。上传完成后，在对应的本地元数据目录生成同名
+							STRM，无需扫描目录。留空关闭自动生成。
+						</p>
+					</div>
+				</Tabs.Content>
+				<Tabs.Content value="appearance" class="mt-6 space-y-6">
+					<div>
+						<h2 class="text-xl font-semibold">选择你的颜色</h2>
+						<p class="text-muted-foreground mt-2 text-sm">立即生效，保存在当前浏览器中。</p>
+					</div>
+					<div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
+						{#each themes as theme}
+							<button
+								class="flex items-center gap-3 rounded-xl border p-4 text-left transition-colors hover:bg-accent"
+								class:ring-2={selectedTheme === theme.id}
+								aria-pressed={selectedTheme === theme.id}
+								onclick={() => {
+									selectedTheme = theme.id;
+									applyTheme(theme.id);
+								}}
+							>
+								<span class="size-6 rounded-full" style:background={theme.color}></span><span
+									>{theme.name}</span
+								>
+							</button>
+						{/each}
 					</div>
 				</Tabs.Content>
 			</Tabs.Root>

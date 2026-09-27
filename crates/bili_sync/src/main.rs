@@ -9,6 +9,7 @@ mod config;
 mod database;
 mod downloader;
 mod error;
+mod library;
 mod media_index;
 mod notifier;
 mod storage;

@@ -12,6 +12,7 @@ use crate::config::VersionedConfig;
 
 mod config;
 mod dashboard;
+mod library;
 mod login;
 mod me;
 mod task;
@@ -22,7 +23,7 @@ mod ws;
 pub use ws::{LogHelper, MAX_HISTORY_LOGS};
 
 pub fn router() -> Router {
-    Router::new().nest(
+    library::playback_router().nest(
         "/api",
         config::router()
             .merge(me::router())

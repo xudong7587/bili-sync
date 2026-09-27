@@ -802,12 +802,38 @@ pub async fn fetch_page_video(
     if !should_run {
         return Ok(ExecutionStatus::Skipped);
     }
+    let metadata_path = if let Some(layout) = StorageLayout::from_env()? {
+        layout.metadata_path_for_video(page_path)?
+    } else {
+        page_path.to_path_buf()
+    };
+    let cd2_client = Cd2Client::configured(cx.config)?;
+    if let Some(cd2) = &cd2_client
+        && let Some(receipt) = crate::library::load(video_model.id, page_info.cid).await?
+        && receipt.cloud
+        && receipt.metadata_path == metadata_path
+        && receipt.storage_path == cd2.remote_path(&metadata_path)?
+    {
+        crate::library::write_strm(&receipt, cx.config).await?;
+        return Ok(ExecutionStatus::Succeeded);
+    }
     let bili_video = Video::new(cx.bili_client, video_model.bvid.as_str(), &cx.config.credential);
     let streams = bili_video
         .get_page_analyzer(page_info)
         .await?
         .best_stream(cx.filter_option)?;
-    if let Some(cd2) = Cd2Client::configured(cx.config)? {
+    let saved_quality = match &streams {
+        BestStream::VideoAudio {
+            video: crate::bilibili::Stream::DashVideo { quality, codecs, .. },
+            ..
+        } => crate::library::SavedQuality {
+            qn: Some(quality.clone() as u32),
+            codec: Some(codecs.to_string()),
+            ..Default::default()
+        },
+        _ => crate::library::SavedQuality::default(),
+    };
+    if let Some(cd2) = cd2_client {
         let temp_file = match streams {
             BestStream::Mixed(mix_stream) => {
                 cx.downloader
@@ -841,14 +867,28 @@ pub async fn fetch_page_video(
                     .await?
             }
         };
-        let metadata_path = if let Some(layout) = StorageLayout::from_env()? {
-            // The existing /video path is a compatibility mapping; derive the
-            // cloud path from its matching /media location.
-            layout.metadata_path_for_video(page_path)?
-        } else {
-            page_path.to_path_buf()
-        };
-        let result = cd2.upload(temp_file.file_path(), &metadata_path).await;
+        let result = async {
+            let quality = crate::library::probe(temp_file.file_path(), saved_quality.clone())
+                .await
+                .unwrap_or(saved_quality);
+            let bytes = fs::metadata(temp_file.file_path()).await?.len();
+            cd2.upload(temp_file.file_path(), &metadata_path).await?;
+            let storage_path = cd2.remote_path(&metadata_path)?;
+            let receipt = crate::library::FileReceipt {
+                video_id: video_model.id,
+                cid: page_info.cid,
+                metadata_path,
+                storage_path,
+                cloud: true,
+                bytes,
+                quality,
+                uploaded_at: chrono::Utc::now().to_rfc3339(),
+                playback_token: uuid::Uuid::new_v4().simple().to_string(),
+            };
+            crate::library::save(&receipt).await?;
+            crate::library::write_strm(&receipt, cx.config).await
+        }
+        .await;
         temp_file.drop_async().await;
         result?;
         return Ok(ExecutionStatus::Succeeded);
@@ -889,6 +929,21 @@ pub async fn fetch_page_video(
                 .await?
         }
     }
+    let quality = crate::library::probe(page_path, saved_quality.clone())
+        .await
+        .unwrap_or(saved_quality);
+    crate::library::save(&crate::library::FileReceipt {
+        video_id: video_model.id,
+        cid: page_info.cid,
+        metadata_path,
+        storage_path: page_path.to_string_lossy().into_owned(),
+        cloud: false,
+        bytes: fs::metadata(page_path).await?.len(),
+        quality,
+        uploaded_at: chrono::Utc::now().to_rfc3339(),
+        playback_token: uuid::Uuid::new_v4().simple().to_string(),
+    })
+    .await?;
     Ok(ExecutionStatus::Succeeded)
 }
 

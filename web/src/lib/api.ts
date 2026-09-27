@@ -223,6 +223,10 @@ class ApiClient {
 		return this.get<UppersResponse>('/me/uppers', params as Record<string, unknown>);
 	}
 
+	async searchUppers(keyword: string, page = 1): Promise<ApiResponse<UppersResponse>> {
+		return this.get<UppersResponse>('/uppers/search', { keyword, page });
+	}
+
 	async insertFavorite(request: InsertFavoriteRequest): Promise<ApiResponse<boolean>> {
 		return this.post<boolean>('/video-sources/favorites', request);
 	}
@@ -326,6 +330,7 @@ const api = {
 	getCreatedFavorites: () => apiClient.getCreatedFavorites(),
 	getFollowedCollections: (pageNum?: number, pageSize?: number) =>
 		apiClient.getFollowedCollections(pageNum, pageSize),
+	searchUppers: (keyword: string, page = 1) => apiClient.searchUppers(keyword, page),
 	getFollowedUppers: (pageNum?: number, pageSize?: number, name?: string) =>
 		apiClient.getFollowedUppers(pageNum, pageSize, name),
 	insertFavorite: (request: InsertFavoriteRequest) => apiClient.insertFavorite(request),

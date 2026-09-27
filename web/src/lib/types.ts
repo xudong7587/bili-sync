@@ -195,6 +195,9 @@ export interface UppersResponse {
 export interface InsertFavoriteRequest {
 	fid: number;
 	path: string;
+	enabled?: boolean;
+	rule?: Rule | null;
+	filter_option?: FilterOption | null;
 }
 
 export interface InsertCollectionRequest {
@@ -202,11 +205,17 @@ export interface InsertCollectionRequest {
 	mid: number;
 	collection_type?: number;
 	path: string;
+	enabled?: boolean;
+	rule?: Rule | null;
+	filter_option?: FilterOption | null;
 }
 
 export interface InsertSubmissionRequest {
 	upper_id: number;
 	path: string;
+	enabled?: boolean;
+	rule?: Rule | null;
+	filter_option?: FilterOption | null;
 }
 
 export interface Condition<T> {
@@ -365,10 +374,17 @@ export interface Config {
 	cd2_url: string;
 	cd2_token: string;
 	cd2_save_path: string;
+	strm_base_url: string;
 	favorite_default_path: string;
 	collection_default_path: string;
 	submission_default_path: string;
 	interval: Trigger;
+	refresh_schedule: {
+		start: string;
+		end: string;
+		jitter_min_seconds: number;
+		jitter_max_seconds: number;
+	};
 	upper_path: string;
 	nfo_time_type: string;
 	concurrent_limit: ConcurrentLimit;

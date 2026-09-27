@@ -136,3 +136,27 @@ html {
 		@apply bg-background text-foreground;
 	}
 }
+
+:root,
+.dark {
+	--brand: #2563eb;
+	--primary: var(--brand);
+	--primary-foreground: #fff;
+	--sidebar-primary: var(--brand);
+	--sidebar-primary-foreground: #fff;
+	--ring: var(--brand);
+	--sidebar-ring: var(--brand);
+	--sidebar-accent: color-mix(in srgb, var(--brand) 12%, var(--background));
+	--sidebar-accent-foreground: var(--foreground);
+}
+@media (prefers-reduced-motion: reduce) {
+	html {
+		scroll-behavior: auto !important;
+	}
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		transition-duration: 0.01ms !important;
+	}
+}

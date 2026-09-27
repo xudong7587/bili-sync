@@ -1,5 +1,8 @@
 <script lang="ts">
 	import '../app.css';
+	import { onMount } from 'svelte';
+	import { applyTheme, getTheme } from '$lib/theme';
+	onMount(() => applyTheme(getTheme()));
 	import AppSidebar from '$lib/components/app-sidebar.svelte';
 	import BreadCrumb from '$lib/components/bread-crumb.svelte';
 	import { Separator } from '$lib/components/ui/separator/index.js';

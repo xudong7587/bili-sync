@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { page } from '$app/state';
+	import CloudIcon from '@lucide/svelte/icons/cloud';
 	import BotIcon from '@lucide/svelte/icons/bot';
 	import ChartPieIcon from '@lucide/svelte/icons/chart-pie';
 	import DatabaseIcon from '@lucide/svelte/icons/database';
@@ -20,7 +22,7 @@
 	const data = {
 		header: {
 			title: 'Bili Sync',
-			subtitle: '后台管理系统',
+			subtitle: '收藏、追更与媒体库',
 			icon: BotIcon,
 			href: '/'
 		},
@@ -74,13 +76,22 @@
 						href: '/me/uppers'
 					}
 				]
-			}
-		],
-		footer: [
+			},
 			{
-				title: '设置',
-				icon: Settings2Icon,
-				href: '/settings'
+				category: '网盘分流',
+				items: [{ title: 'CloudDrive2 · 115', icon: CloudIcon, href: '/settings?section=cloud' }]
+			},
+			{
+				category: '设置',
+				items: [
+					{ title: '通用与调度', icon: Settings2Icon, href: '/settings?section=basic' },
+					{ title: 'B 站账号', icon: UserIcon, href: '/settings?section=auth' },
+					{ title: '画质与视频处理', icon: FilePlayIcon, href: '/settings?section=filter' },
+					{ title: '弹幕', icon: SquareTerminalIcon, href: '/settings?section=danmaku' },
+					{ title: '通知与 Webhook', icon: BotIcon, href: '/settings?section=notifiers' },
+					{ title: '外观', icon: PaletteIcon, href: '/settings?section=appearance' },
+					{ title: '高级设置', icon: Settings2Icon, href: '/settings?section=advanced' }
+				]
 			}
 		]
 	};
@@ -121,7 +132,10 @@
 				<Sidebar.Menu>
 					{#each group.items as item (item.title)}
 						<Sidebar.MenuItem>
-							<Sidebar.MenuButton class="h-8">
+							<Sidebar.MenuButton
+								class="h-9"
+								isActive={page.url.pathname + page.url.search === item.href}
+							>
 								{#snippet child({ props })}
 									<a href={item.href} {...props} onclick={closeMobileSidebar}>
 										<item.icon class="size-4" />
@@ -154,18 +168,6 @@
 					{/snippet}
 				</Sidebar.MenuButton>
 			</Sidebar.MenuItem>
-			{#each data.footer as item (item.title)}
-				<Sidebar.MenuItem>
-					<Sidebar.MenuButton class="h-8">
-						{#snippet child({ props })}
-							<a href={item.href} {...props} onclick={closeMobileSidebar}>
-								<item.icon class="size-4" />
-								<span class="text-sm">{item.title}</span>
-							</a>
-						{/snippet}
-					</Sidebar.MenuButton>
-				</Sidebar.MenuItem>
-			{/each}
 		</Sidebar.Menu>
 	</Sidebar.Footer>
 </Sidebar.Root>

@@ -68,6 +68,50 @@ impl Cd2Client {
         }))
     }
 
+    pub async fn download(&self, path: &str, range: Option<&str>, head: bool) -> Result<reqwest::Response> {
+        let info: DownloadUrlPathInfo = self
+            .call_one(
+                "GetDownloadUrlPath",
+                &GetDownloadUrlPathRequest {
+                    path: path.to_owned(),
+                    preview: false,
+                    lazy_read: false,
+                    get_direct_url: false,
+                },
+            )
+            .await?;
+        let host = match self.url.port() {
+            Some(port) => format!("{}:{port}", self.url.host_str().context("CD2 host missing")?),
+            None => self.url.host_str().context("CD2 host missing")?.to_owned(),
+        };
+        let download_path = info
+            .download_url_path
+            .replace("{SCHEME}", self.url.scheme())
+            .replace("{HOST}", &host)
+            .replace("{PREVIEW}", "false");
+        let url = self.url.join(&download_path)?;
+        ensure!(url.origin() == self.url.origin(), "CD2 下载入口不是已配置的服务");
+        // The CD2-generated file URL supplies scoped download authorization. Never forward the API token.
+        let client = Client::builder()
+            .no_proxy()
+            .connect_timeout(Duration::from_secs(30))
+            .read_timeout(Duration::from_secs(90))
+            .redirect(reqwest::redirect::Policy::limited(5))
+            .build()?;
+        let mut request = client.request(
+            if head {
+                reqwest::Method::HEAD
+            } else {
+                reqwest::Method::GET
+            },
+            url,
+        );
+        if let Some(range) = range {
+            request = request.header(reqwest::header::RANGE, range);
+        }
+        Ok(request.send().await?)
+    }
+
     pub fn remote_path(&self, metadata_file: &Path) -> Result<String> {
         let relative = metadata_file
             .strip_prefix(&self.metadata_root)
@@ -628,4 +672,21 @@ mod tests {
         let loaded: Config = serde_json::from_value(saved).unwrap();
         assert!(Cd2Client::configured(&loaded).unwrap().is_none());
     }
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct GetDownloadUrlPathRequest {
+    #[prost(string, tag = "1")]
+    path: String,
+    #[prost(bool, tag = "2")]
+    preview: bool,
+    #[prost(bool, tag = "3")]
+    lazy_read: bool,
+    #[prost(bool, tag = "4")]
+    get_direct_url: bool,
+}
+#[derive(Clone, PartialEq, Message)]
+struct DownloadUrlPathInfo {
+    #[prost(string, tag = "1")]
+    download_url_path: String,
 }

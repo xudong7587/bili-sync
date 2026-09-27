@@ -52,6 +52,8 @@ pub struct Config {
     pub cd2_token: String,
     #[serde(default)]
     pub cd2_save_path: String,
+    #[serde(default)]
+    pub strm_base_url: String,
     #[serde(default = "default_favorite_path")]
     pub favorite_default_path: String,
     #[serde(default = "default_collection_path")]
@@ -59,6 +61,8 @@ pub struct Config {
     #[serde(default = "default_submission_path")]
     pub submission_default_path: String,
     pub interval: Trigger,
+    #[serde(default)]
+    pub refresh_schedule: super::schedule::RefreshSchedule,
     pub upper_path: PathBuf,
     pub nfo_time_type: NFOTimeType,
     pub concurrent_limit: ConcurrentLimit,
@@ -81,6 +85,8 @@ impl Config {
     pub fn check(&self) -> Result<()> {
         crate::media_index::validate(self)?;
         crate::cd2::validate(self)?;
+        crate::library::validate(self)?;
+        self.refresh_schedule.validate()?;
         let mut errors = Vec::new();
         if !self.upper_path.is_absolute() {
             errors.push("up 主头像保存的路径应为绝对路径");
@@ -150,10 +156,12 @@ impl Default for Config {
             cd2_url: String::new(),
             cd2_token: String::new(),
             cd2_save_path: String::new(),
+            strm_base_url: String::new(),
             favorite_default_path: default_favorite_path(),
             collection_default_path: default_collection_path(),
             submission_default_path: default_submission_path(),
             interval: Trigger::default(),
+            refresh_schedule: Default::default(),
             upper_path: CONFIG_DIR.join("upper_face"),
             nfo_time_type: NFOTimeType::FavTime,
             concurrent_limit: ConcurrentLimit::default(),

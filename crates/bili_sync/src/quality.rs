@@ -14,11 +14,20 @@ use crate::library::{self, FileReceipt, SavedQuality};
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Comparison {
+    #[serde(default)]
+    pub video_id: Option<i32>,
+    #[serde(default)]
+    pub cid: Option<i64>,
     pub checked_at: String,
     pub current: SavedQuality,
     pub candidate: SavedQuality,
     pub upgradeable: bool,
     pub message: String,
+}
+impl Comparison {
+    fn matches(&self, receipt: &FileReceipt) -> bool {
+        self.video_id == Some(receipt.video_id) && self.cid == Some(receipt.cid) && self.current == receipt.quality
+    }
 }
 #[derive(Deserialize)]
 pub struct BatchRequest {
@@ -45,9 +54,12 @@ pub fn status() -> JobState {
 fn comparison_path(id: i32) -> PathBuf {
     CONFIG_DIR.join("quality").join(format!("{id}.json"))
 }
-pub async fn load_comparison(id: i32) -> Result<Option<Comparison>> {
+pub async fn load_comparison(id: i32, receipt: Option<&FileReceipt>) -> Result<Option<Comparison>> {
     match tokio::fs::read(comparison_path(id)).await {
-        Ok(bytes) => Ok(Some(serde_json::from_slice(&bytes)?)),
+        Ok(bytes) => {
+            let comparison: Comparison = serde_json::from_slice(&bytes)?;
+            Ok(receipt.filter(|r| comparison.matches(r)).map(|_| comparison))
+        }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e.into()),
     }
@@ -293,6 +305,8 @@ async fn process(
     }
     let (streams, proposed) = candidate(client, config, &video, &page).await?;
     let mut comparison = Comparison {
+        video_id: Some(video.id),
+        cid: Some(page.cid),
         checked_at: chrono::Utc::now().to_rfc3339(),
         current: old.quality.clone(),
         candidate: proposed.clone(),
@@ -391,6 +405,37 @@ mod tests {
             frame_rate: Some("30/1".into()),
             ..Default::default()
         }
+    }
+    #[test]
+    fn comparison_cannot_be_reused_after_page_id_recycling_or_file_replacement() {
+        let mut receipt = FileReceipt {
+            video_id: 12,
+            cid: 34,
+            metadata_path: PathBuf::new(),
+            storage_path: String::new(),
+            cloud: false,
+            cloud_file_id: None,
+            bytes: 1,
+            quality: quality(),
+            uploaded_at: String::new(),
+            playback_token: String::new(),
+        };
+        let comparison = Comparison {
+            video_id: Some(12),
+            cid: Some(34),
+            current: quality(),
+            ..Default::default()
+        };
+        assert!(comparison.matches(&receipt));
+        receipt.video_id = 13;
+        assert!(!comparison.matches(&receipt));
+        receipt.video_id = 12;
+        receipt.cid = 35;
+        assert!(!comparison.matches(&receipt));
+        receipt.cid = 34;
+        receipt.quality.height = Some(2160);
+        assert!(!comparison.matches(&receipt));
+        assert!(!Comparison::default().matches(&receipt));
     }
     #[test]
     fn rejects_codec_only_and_duration_regression() {

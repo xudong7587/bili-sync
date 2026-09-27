@@ -850,8 +850,6 @@
 							</div>
 						{/if}
 					</div>
-
-					<!-- Legacy MediaIndex fields stay in formData for configuration round trips. -->
 					<Separator />
 
 					<div class="flex items-center justify-between rounded-lg border p-4">

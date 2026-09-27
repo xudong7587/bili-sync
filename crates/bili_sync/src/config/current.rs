@@ -52,12 +52,6 @@ pub struct Config {
     #[serde(default)]
     pub ignore_common_errors: bool,
     #[serde(default)]
-    pub media_index_webhook_enabled: bool,
-    #[serde(default)]
-    pub media_index_webhook_url: String,
-    #[serde(default)]
-    pub media_index_webhook_token: String,
-    #[serde(default)]
     pub storage_mode: StorageMode,
     #[serde(default)]
     pub cd2_url: String,
@@ -96,7 +90,6 @@ impl Config {
     }
 
     pub fn check(&self) -> Result<()> {
-        crate::media_index::validate(self)?;
         crate::cd2::validate(self)?;
         crate::library::validate(self)?;
         self.refresh_schedule.validate()?;
@@ -164,9 +157,6 @@ impl Default for Config {
             page_name: "{{bvid}}".to_owned(),
             notifiers: None,
             ignore_common_errors: false,
-            media_index_webhook_enabled: false,
-            media_index_webhook_url: String::new(),
-            media_index_webhook_token: String::new(),
             storage_mode: StorageMode::Auto,
             cd2_url: String::new(),
             cd2_token: String::new(),
@@ -185,5 +175,21 @@ impl Default for Config {
             try_upower_anyway: false,
             version: 0,
         }
+    }
+}
+
+#[cfg(test)]
+mod compatibility_tests {
+    use super::*;
+    #[test]
+    fn removed_media_index_fields_are_ignored_without_affecting_existing_config() {
+        let original = Config::default();
+        let expected = serde_json::to_value(&original).unwrap();
+        let mut saved = expected.clone();
+        saved["media_index_webhook_enabled"] = true.into();
+        saved["media_index_webhook_url"] = "https://obsolete.example.com/webhook".into();
+        saved["media_index_webhook_token"] = "legacy-token".into();
+        let loaded: Config = serde_json::from_value(saved).unwrap();
+        assert_eq!(serde_json::to_value(loaded).unwrap(), expected);
     }
 }

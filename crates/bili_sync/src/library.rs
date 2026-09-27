@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::{CONFIG_DIR, Config};
 
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct SavedQuality {
     pub qn: Option<u32>,
     pub codec: Option<String>,

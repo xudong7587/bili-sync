@@ -37,21 +37,9 @@ async fn prepare(directory: &Path, source: &Path, old: &FileReceipt, new: &FileR
     let staged = target.with_extension(format!("{id}.new"));
     let backup = target.with_extension(format!("{id}.mp4.backup"));
     fs::create_dir_all(directory).await?;
-    fs::copy(source, &staged).await?;
-    sync_file(&staged).await?;
-    // Hard link leaves the live path available; copy supports filesystems without links.
-    if fs::hard_link(target, &backup).await.is_err() {
-        fs::copy(target, &backup).await?;
-    }
-    sync_file(&backup).await?;
-    sync_parent(&backup).await?;
+    let backup_receipt_path = directory.join(format!("{}-{}-backup-{id}.json", old.video_id, old.cid));
     let mut backup_receipt = old.clone();
     backup_receipt.storage_path = backup.to_string_lossy().into_owned();
-    atomic_write(
-        &directory.join(format!("{}-{}-backup-{id}.json", old.video_id, old.cid)),
-        &serde_json::to_vec(&backup_receipt)?,
-    )
-    .await?;
     let journal = Journal {
         old: old.clone(),
         new: new.clone(),
@@ -59,7 +47,35 @@ async fn prepare(directory: &Path, source: &Path, old: &FileReceipt, new: &FileR
         backup,
     };
     let path = directory.join(format!("local-commit-{}-{}-{id}.pending", old.video_id, old.cid));
-    atomic_write(&path, &serde_json::to_vec(&journal)?).await?;
+    let result = async {
+        fs::copy(source, &journal.staged).await?;
+        sync_file(&journal.staged).await?;
+        // Hard link leaves the live path available; copy supports filesystems without links.
+        if fs::hard_link(target, &journal.backup).await.is_err() {
+            fs::copy(target, &journal.backup).await?;
+        }
+        sync_file(&journal.backup).await?;
+        sync_parent(&journal.backup).await?;
+        atomic_write(&backup_receipt_path, &serde_json::to_vec(&backup_receipt)?).await?;
+        atomic_write(&path, &serde_json::to_vec(&journal)?).await?;
+        Result::<()>::Ok(())
+    }
+    .await;
+    if let Err(error) = result {
+        if path.try_exists()? {
+            rollback(directory, &path, &journal)
+                .await
+                .context("准备阶段回滚失败，保留记录供启动恢复")?;
+        } else {
+            // No commit started: only our unique temporary paths may be removed.
+            for temporary in [&journal.staged, &backup_receipt_path, &journal.backup] {
+                if let Err(cleanup) = remove_if_present(temporary).await {
+                    tracing::warn!("清理升级准备文件失败 {}: {cleanup:#}", temporary.display());
+                }
+            }
+        }
+        return Err(error);
+    }
     Ok((path, journal))
 }
 async fn finish(directory: &Path, path: &Path, journal: &Journal) -> Result<()> {
@@ -84,24 +100,25 @@ async fn rollback(directory: &Path, path: &Path, journal: &Journal) -> Result<()
     }
     sync_file(&restored).await?;
     fs::rename(&restored, target).await?;
+    // POSIX rename is a no-op when both paths already point to the same inode.
+    remove_if_present(&restored).await?;
     sync_parent(target).await?;
     atomic_write(
         &receipt_path(directory, &journal.old),
         &serde_json::to_vec(&journal.old)?,
     )
     .await?;
-    match fs::remove_file(&journal.staged).await {
-        Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
-    }
-    match fs::remove_file(path).await {
-        Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
-    }
+    remove_if_present(&journal.staged).await?;
+    remove_if_present(path).await?;
     sync_parent(path).await?;
     Ok(())
+}
+async fn remove_if_present(path: &Path) -> Result<()> {
+    match fs::remove_file(path).await {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
 }
 pub async fn replace(source: &Path, old: &FileReceipt, new: &FileReceipt) -> Result<()> {
     let directory = CONFIG_DIR.join("library");
@@ -184,6 +201,11 @@ mod tests {
             assert!(!path.exists());
             assert_eq!(fs::read(&journal.backup).await.unwrap(), b"old-video");
             recover_at(&dir).await.unwrap();
+            let mut entries = fs::read_dir(&dir).await.unwrap();
+            while let Some(entry) = entries.next_entry().await.unwrap() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                assert!(!name.ends_with(".restore") && !name.ends_with(".new") && !name.ends_with(".pending"));
+            }
             fs::remove_dir_all(dir).await.unwrap();
         }
     }

@@ -50,9 +50,6 @@ pub async fn process_video_source(
     template: &handlebars::Handlebars<'_>,
     config: &Config,
 ) -> Result<()> {
-    if let Err(error) = crate::media_index::flush_pending().await {
-        warn!("重试 MediaIndex 入库通知失败：{error:#}");
-    }
     // 预创建视频源目录，提前检测目录是否可写
     video_source.create_dir_all().await?;
     // 从参数中获取视频列表的 Model 与视频流
@@ -80,9 +77,6 @@ pub async fn process_video_source(
         .await?;
         if download_notify_info.should_notify() {
             notify(config, bili_client, download_notify_info);
-        }
-        if let Err(error) = crate::media_index::flush_pending().await {
-            warn!("发送 MediaIndex 入库通知失败，将在下轮重试：{error:#}");
         }
     }
     Ok(())
@@ -511,21 +505,13 @@ pub async fn dispatch_download_page(
         return Ok(ExecutionStatus::Skipped);
     }
     let tasks = stream::iter(page_models)
-        .map(|page_model| async move {
-            let video_was_pending = PageStatus::from(page_model.download_status).should_run()[1];
-            let model = download_page(video_model, page_model, base_path, cx).await?;
-            let video_succeeded = {
-                let status: [u32; 5] = PageStatus::from(*model.download_status.as_ref()).into();
-                status[1] == STATUS_OK
-            };
-            Ok::<_, anyhow::Error>((model, video_was_pending && video_succeeded))
-        })
+        .map(|page_model| download_page(video_model, page_model, base_path, cx))
         .buffer_unordered(cx.config.concurrent_limit.page);
     let (mut risk_control_related_error, mut target_status) = (None, STATUS_OK);
     let mut stream = tasks
         .take_while(|res| {
             match res {
-                Ok((model, _)) => {
+                Ok(model) => {
                     // 该视频的所有分页的下载状态都会在此返回，需要根据这些状态确认视频层“分页下载”子任务的状态
                     // 在过去的实现中，此处仅仅根据 page_download_status 的最高标志位来判断，如果最高标志位是 true 则认为完成
                     // 这样会导致即使分页中有失败到 MAX_RETRY 的情况，视频层的分页下载状态也会被认为是 Succeeded，不够准确
@@ -550,14 +536,7 @@ pub async fn dispatch_download_page(
         .filter_map(|res| futures::future::ready(res.ok()))
         .chunks(10);
     while let Some(models) = stream.next().await {
-        let (page_models, new_video_flags): (Vec<_>, Vec<_>) = models.into_iter().unzip();
-        update_pages_model(page_models, cx.connection).await?;
-        if new_video_flags.into_iter().any(|downloaded| downloaded) {
-            crate::media_index::mark_pending().await?;
-            if let Err(error) = crate::media_index::flush_pending().await {
-                warn!("发送 MediaIndex 入库通知失败，将在下轮重试：{error:#}");
-            }
-        }
+        update_pages_model(models, cx.connection).await?;
     }
     if let Some(e) = risk_control_related_error {
         bail!(e);
@@ -827,7 +806,7 @@ pub async fn fetch_page_video(
         && let Some(receipt) = crate::library::load(video_model.id, page_info.cid).await?
         && receipt.cloud
         && receipt.metadata_path == metadata_path
-        && receipt.storage_path == cd2.remote_path(&metadata_path)?
+        && Path::new(&receipt.storage_path).parent() == Path::new(&cd2.remote_path(&metadata_path)?).parent()
     {
         ensure!(
             cd2.existing_size(&receipt.storage_path).await? == receipt.bytes,

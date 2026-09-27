@@ -147,8 +147,8 @@ async fn list(
                     .map(|r| if r.cloud { "115" } else { "local" })
                     .unwrap_or("unknown")
                     .to_owned(),
+                comparison: crate::quality::load_comparison(part.id, receipt.as_ref()).await?,
                 quality: receipt.map(|r| r.quality),
-                comparison: crate::quality::load_comparison(part.id).await?,
             });
         }
     }

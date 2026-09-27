@@ -110,7 +110,7 @@
 			>{#each channels as c (c[0])}<option value={c[0]}>{c[1]}</option>{/each}</select
 		>
 		<p class="text-muted-foreground text-xs">
-			请选择其他服务未使用的渠道。同一渠道的旧会话可能被顶下线；默认支付宝小程序，与 MediaIndex
+			请选择其他服务未使用的渠道。同一渠道的旧会话可能被顶下线；默认支付宝小程序，与其他服务
 			的登录方式一致。
 		</p>
 	</div>

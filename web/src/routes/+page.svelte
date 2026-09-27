@@ -94,12 +94,7 @@
 
 <svelte:head><title>仪表盘 - Bili Sync</title></svelte:head>
 <div class="space-y-8 pb-8">
-	<div class="flex flex-wrap items-end justify-between gap-3">
-		<div>
-			<p class="text-primary mb-1 text-xs font-semibold tracking-widest">BILI SYNC</p>
-			<h1 class="text-3xl font-semibold tracking-tight">收藏，接着看。</h1>
-			<p class="text-muted-foreground mt-2 text-sm">下载、云端归档与追更，一处掌握。</p>
-		</div>
+	<div class="flex justify-end">
 		<Button variant="outline" onclick={trigger} disabled={triggering || task?.is_running}
 			>{triggering ? '正在安排…' : task?.is_running ? '任务运行中' : '立即检查更新'}</Button
 		>

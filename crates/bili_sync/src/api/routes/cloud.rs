@@ -14,6 +14,7 @@ use crate::p115;
 struct LoginState {
     running: bool,
     authorized: bool,
+    channel: String,
     qrcode: String,
     status: String,
     error: Option<String>,
@@ -22,6 +23,7 @@ static LOGIN: LazyLock<Mutex<LoginState>> = LazyLock::new(|| Mutex::new(LoginSta
 #[derive(Deserialize)]
 struct LoginRequest {
     client_id: String,
+    channel: String,
 }
 pub fn router() -> Router {
     Router::new()
@@ -42,9 +44,13 @@ async fn login_state() -> ApiResponse<LoginState> {
     let authorized = p115::authorized().await;
     let mut state = LOGIN.lock().clone();
     state.authorized = authorized;
+    if !state.running {
+        state.channel = p115::channel().await;
+    }
     ApiResponse::ok(state)
 }
 async fn start_login(Json(request): Json<LoginRequest>) -> Result<ApiResponse<bool>, ApiError> {
+    p115::validate_channel(&request.channel)?;
     {
         let mut state = LOGIN.lock();
         if state.running {
@@ -52,13 +58,14 @@ async fn start_login(Json(request): Json<LoginRequest>) -> Result<ApiResponse<bo
         }
         *state = LoginState {
             running: true,
+            channel: request.channel.clone(),
             status: "正在向 115 获取二维码".into(),
             ..Default::default()
         };
     }
     tokio::spawn(async move {
         let result = tokio::time::timeout(std::time::Duration::from_secs(300), async {
-            let pending = p115::start(request.client_id.trim()).await?;
+            let pending = p115::start(request.client_id.trim(), &request.channel).await?;
             LOGIN.lock().qrcode.clone_from(&pending.qrcode);
             loop {
                 LOGIN.lock().status = match p115::poll(&pending).await? {

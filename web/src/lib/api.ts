@@ -61,6 +61,8 @@ class ApiClient {
 		if (token) {
 			this.defaultHeaders['Authorization'] = token;
 			localStorage.setItem('authToken', token);
+			wsManager.disconnect();
+			void wsManager.connect().catch(() => {});
 		} else {
 			delete this.defaultHeaders['Authorization'];
 			localStorage.removeItem('authToken');
@@ -242,14 +244,15 @@ class ApiClient {
 	async cloudSpace() {
 		return this.get<{ total: number; used: number; free: number }>('/cloud/space');
 	}
-	async cloudLoginStart(client_id: string) {
-		return this.post<boolean>('/cloud/login', { client_id });
+	async cloudLoginStart(client_id: string, channel: string) {
+		return this.post<boolean>('/cloud/login', { client_id, channel });
 	}
 	async cloudLoginState() {
 		return this.get<{
 			running: boolean;
 			error: string | null;
 			authorized: boolean;
+			channel: string;
 			qrcode: string;
 			status: string;
 		}>('/cloud/login');
@@ -373,7 +376,8 @@ const api = {
 	storageSummary: () => apiClient.storageSummary(),
 	cloudSpace: () => apiClient.cloudSpace(),
 	cloudAccountCheck: () => apiClient.cloudAccountCheck(),
-	cloudLoginStart: (client_id: string) => apiClient.cloudLoginStart(client_id),
+	cloudLoginStart: (client_id: string, channel: string) =>
+		apiClient.cloudLoginStart(client_id, channel),
 	cloudLoginState: () => apiClient.cloudLoginState(),
 
 	searchUppers: (keyword: string, page = 1) => apiClient.searchUppers(keyword, page),

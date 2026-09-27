@@ -21,6 +21,7 @@
 	import QrCodeIcon from '@lucide/svelte/icons/qr-code';
 	import api from '$lib/api';
 	import CloudAccount from '$lib/components/cloud-account.svelte';
+	import Cd2Connection from '$lib/components/cd2-connection.svelte';
 	import { toast } from 'svelte-sonner';
 	import { setBreadcrumb } from '$lib/stores/breadcrumb';
 	import type { Config, ApiError, Notifier, Credential, DanmakuUpdateMilestone } from '$lib/types';
@@ -1043,14 +1044,17 @@
 							<Label for="cd2-save-path">115 保存根目录（CD2 内路径）</Label>
 							<Input
 								id="cd2-save-path"
-								placeholder="/115/媒体库/08Bilibili"
+								placeholder="/媒体库/Bilibili"
 								bind:value={formData.cd2_save_path}
 							/>
 							<p class="text-muted-foreground text-xs">
-								/media 下的相对目录会原样追加到这里，云端视频与本地元数据保持相同结构。
+								/media 下的相对目录会原样追加到这里。路径以 API
+								令牌的授权根目录为准，不要重复添加网盘名称。
 							</p>
 						</div>
 					</div>
+
+					<Cd2Connection />
 
 					<div class="space-y-2 rounded-xl border p-5">
 						<Label for="strm-url">STRM 播放服务地址</Label><Input

@@ -196,7 +196,9 @@
 					</div>
 					<div
 						class="text-primary text-2xl font-semibold tabular-nums"
-						title={video.download_status.map((s, i) => `${getTaskName(i)}: ${getStatusText(s)}`).join('；')}
+						title={video.download_status
+							.map((s, i) => `${getTaskName(i)}: ${getStatusText(s)}`)
+							.join('；')}
 					>
 						{total ? Math.round((completed / total) * 100) : 0}<span class="ml-1 text-xs">%</span>
 					</div>

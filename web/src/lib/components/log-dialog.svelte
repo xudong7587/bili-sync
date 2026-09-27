@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import api from '$lib/api';
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
@@ -9,8 +8,9 @@
 	let filter = $state('all');
 	let logs = $state<{ timestamp: string; level: string; message: string; id: number }[]>([]);
 	let sequence = 0;
-	onMount(() =>
-		api.subscribeToLogs((data: string) => {
+	$effect(() => {
+		if (!open) return;
+		return api.subscribeToLogs((data: string) => {
 			if (paused) return;
 			try {
 				const log = JSON.parse(data);
@@ -18,8 +18,8 @@
 			} catch {
 				/* Ignore malformed events. */
 			}
-		})
-	);
+		});
+	});
 	const visible = $derived(
 		logs.filter((log) => filter === 'all' || log.level === filter).toReversed()
 	);

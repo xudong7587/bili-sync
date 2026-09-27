@@ -354,6 +354,7 @@ dependencies = [
  "lettre",
  "md5",
  "memchr",
+ "num-bigint",
  "once_cell",
  "parking_lot",
  "prost",

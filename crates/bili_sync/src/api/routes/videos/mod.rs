@@ -230,6 +230,7 @@ pub async fn clear_and_reset_video_status(
     Ok(ApiResponse::ok(ClearAndResetVideoStatusResponse {
         warning,
         video: VideoInfo {
+            cover: video_info.cover.clone(),
             id: video_info.id,
             bvid: video_info.bvid,
             name: video_info.name,

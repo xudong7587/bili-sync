@@ -30,7 +30,6 @@ async fn play(Path((video_id, cid, token)): Path<(i32, i64, String)>, headers: H
         if receipt.cloud_file_id.is_none() {
             if let Ok(id) = cd2.file_id(&receipt.storage_path).await {
                 receipt.cloud_file_id = Some(id);
-                let _ = library::save(&receipt).await;
             }
         }
         match receipt.cloud_file_id.as_deref() {

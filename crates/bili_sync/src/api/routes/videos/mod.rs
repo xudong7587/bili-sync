@@ -99,9 +99,17 @@ pub async fn get_videos(
     } else {
         (0, 10)
     };
+    query = match params.sort.as_deref() {
+        Some("title") => query.order_by_asc(video::Column::Name).order_by_desc(video::Column::Id),
+        Some("oldest") => query
+            .order_by_asc(video::Column::Favtime)
+            .order_by_asc(video::Column::Id),
+        _ => query
+            .order_by_desc(video::Column::Favtime)
+            .order_by_desc(video::Column::Id),
+    };
     Ok(ApiResponse::ok(VideosResponse {
         videos: query
-            .order_by_desc(video::Column::Id)
             .into_partial_model::<VideoInfo>()
             .paginate(&db, page_size)
             .fetch_page(page)

@@ -34,11 +34,6 @@
 						title: '仪表盘',
 						icon: ChartPieIcon,
 						href: '/'
-					},
-					{
-						title: '日志',
-						icon: SquareTerminalIcon,
-						href: '/logs'
 					}
 				]
 			},

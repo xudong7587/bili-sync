@@ -12,6 +12,7 @@ mod error;
 mod library;
 mod media_index;
 mod notifier;
+mod p115;
 mod quality;
 mod storage;
 mod task;

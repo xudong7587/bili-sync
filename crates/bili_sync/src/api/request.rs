@@ -23,6 +23,7 @@ pub enum ValidationFilter {
 
 #[derive(Deserialize)]
 pub struct VideosRequest {
+    pub sort: Option<String>,
     pub collection: Option<i32>,
     pub favorite: Option<i32>,
     pub submission: Option<i32>,

@@ -30,6 +30,7 @@ export interface VideoSourcesResponse {
 }
 
 export interface VideoInfo {
+	cover?: string;
 	id: number;
 	bvid: string;
 	name: string;
@@ -408,6 +409,7 @@ export interface DashBoardResponse {
 }
 
 export interface SysInfo {
+	download_bytes: number;
 	timestamp: number;
 	total_memory: number;
 	used_memory: number;

@@ -262,6 +262,7 @@ impl WebSocketHandler {
                             (available, total)
                         });
                     let sys_info = SysInfo {
+                        download_bytes: crate::downloader::DOWNLOAD_BYTES.load(std::sync::atomic::Ordering::Relaxed),
                         timestamp: chrono::Utc::now().timestamp_millis(),
                         total_memory: system.total_memory(),
                         used_memory: system.used_memory(),

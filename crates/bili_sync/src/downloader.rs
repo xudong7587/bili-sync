@@ -1,3 +1,5 @@
+pub static DOWNLOAD_BYTES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 use core::str;
 use std::io::SeekFrom;
 use std::path::Path;
@@ -171,7 +173,13 @@ impl Downloader {
             .await?
             .error_for_status_ext()?;
         let expected = resp.header_content_length();
-        let mut stream_reader = StreamReader::new(resp.bytes_stream().map_err(std::io::Error::other));
+        let mut stream_reader = StreamReader::new(
+            resp.bytes_stream()
+                .inspect_ok(|bytes| {
+                    DOWNLOAD_BYTES.fetch_add(bytes.len() as u64, std::sync::atomic::Ordering::Relaxed);
+                })
+                .map_err(std::io::Error::other),
+        );
         let mut file_writer = BufWriter::with_capacity(2 * 1024 * 1024, file);
         let received = tokio::io::copy(&mut stream_reader, &mut file_writer).await?;
         file_writer.flush().await?;
@@ -261,7 +269,13 @@ impl Downloader {
                         content_length
                     );
                 }
-                let mut stream_reader = StreamReader::new(resp.bytes_stream().map_err(std::io::Error::other));
+                let mut stream_reader = StreamReader::new(
+                    resp.bytes_stream()
+                        .inspect_ok(|bytes| {
+                            DOWNLOAD_BYTES.fetch_add(bytes.len() as u64, std::sync::atomic::Ordering::Relaxed);
+                        })
+                        .map_err(std::io::Error::other),
+                );
                 let mut file_writer = BufWriter::with_capacity(2 * 1024 * 1024, file_clone);
                 let received = tokio::io::copy(&mut stream_reader, &mut file_writer).await?;
                 file_writer.flush().await?;

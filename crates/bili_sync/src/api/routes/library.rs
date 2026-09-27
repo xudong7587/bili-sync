@@ -14,7 +14,7 @@ pub fn playback_router() -> Router {
 }
 
 async fn play(Path((video_id, cid, token)): Path<(i32, i64, String)>, headers: HeaderMap, method: Method) -> Response {
-    let Ok(Some(receipt)) = library::load(video_id, cid).await else {
+    let Ok(Some(mut receipt)) = library::load(video_id, cid).await else {
         return StatusCode::NOT_FOUND.into_response();
     };
     // These independent 128-bit file tokens do not grant access to settings or other files.
@@ -26,7 +26,21 @@ async fn play(Path((video_id, cid, token)): Path<(i32, i64, String)>, headers: H
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
     let range = headers.get("range").and_then(|v| v.to_str().ok());
-    let response = match cd2.download(&receipt.storage_path, range, method == Method::HEAD).await {
+    let result = if crate::p115::authorized().await {
+        if receipt.cloud_file_id.is_none() {
+            if let Ok(id) = cd2.file_id(&receipt.storage_path).await {
+                receipt.cloud_file_id = Some(id);
+                let _ = library::save(&receipt).await;
+            }
+        }
+        match receipt.cloud_file_id.as_deref() {
+            Some(id) => crate::p115::download(id, range, method == Method::HEAD).await,
+            None => cd2.download(&receipt.storage_path, range, method == Method::HEAD).await,
+        }
+    } else {
+        cd2.download(&receipt.storage_path, range, method == Method::HEAD).await
+    };
+    let response = match result {
         Ok(response) => response,
         Err(_) => return StatusCode::BAD_GATEWAY.into_response(),
     };

@@ -82,6 +82,7 @@ pub struct VideoInfo {
     pub favorite_id: Option<i32>,
     pub submission_id: Option<i32>,
     pub watch_later_id: Option<i32>,
+    pub cover: String,
 }
 
 #[derive(Serialize, DerivePartialModel, FromQueryResult)]
@@ -197,6 +198,7 @@ pub struct DashBoardResponse {
 
 #[derive(Serialize, Clone, Copy)]
 pub struct SysInfo {
+    pub download_bytes: u64,
     pub timestamp: i64,
     pub total_memory: u64,
     pub used_memory: u64,

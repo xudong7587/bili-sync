@@ -24,6 +24,8 @@ pub struct FileReceipt {
     pub metadata_path: PathBuf,
     pub storage_path: String,
     pub cloud: bool,
+    #[serde(default)]
+    pub cloud_file_id: Option<String>,
     pub bytes: u64,
     pub quality: SavedQuality,
     pub uploaded_at: String,
@@ -139,6 +141,7 @@ mod tests {
             metadata_path: dir.join("中文视频.mp4"),
             storage_path: "/115/视频.mp4".into(),
             cloud: true,
+            cloud_file_id: None,
             bytes: 100,
             quality: SavedQuality::default(),
             uploaded_at: String::new(),

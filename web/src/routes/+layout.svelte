@@ -1,5 +1,6 @@
 <script lang="ts">
 	import '../app.css';
+	import LogDialog from '$lib/components/log-dialog.svelte';
 	import { onMount } from 'svelte';
 	import { applyTheme, getTheme } from '$lib/theme';
 	onMount(() => applyTheme(getTheme()));
@@ -23,6 +24,7 @@
 				<Separator orientation="vertical" class="mr-2 data-[orientation=vertical]:h-4" />
 				<BreadCrumb items={$breadcrumbStore} />
 			</div>
+			<div class="ml-auto pr-5"><LogDialog /></div>
 		</header>
 		<div
 			class="w-full overflow-y-auto px-6 py-2"

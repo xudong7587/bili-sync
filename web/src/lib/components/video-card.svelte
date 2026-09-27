@@ -17,9 +17,9 @@
 	import SquareArrowOutUpRightIcon from '@lucide/svelte/icons/square-arrow-out-up-right';
 	import UserIcon from '@lucide/svelte/icons/user';
 	import { goto } from '$app/navigation';
-	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
 
 	// 将 bvid 设置为可选属性，但保留 VideoInfo 的其它所有属性
+	export let presentation: 'card' | 'banner' | 'list' = 'card';
 	export let video: Omit<VideoInfo, 'bvid'> & { bvid?: string };
 	export let source: { type: string; name: string } | null = null; // 视频源信息
 	export let showActions: boolean = true; // 控制是否显示操作按钮
@@ -44,16 +44,6 @@
 			return '未开始';
 		} else {
 			return `失败${status}次`;
-		}
-	}
-
-	function getSegmentColor(status: number): string {
-		if (status === 7) {
-			return 'bg-emerald-500';
-		} else if (status === 0) {
-			return 'bg-yellow-500';
-		} else {
-			return 'bg-rose-500';
 		}
 	}
 
@@ -133,7 +123,21 @@
 			: 'transition-all hover:shadow-lg border-border/50';
 </script>
 
-<Card class={cardClasses}>
+<Card
+	class={`${cardClasses} relative isolate overflow-hidden ${presentation === 'list' ? 'md:flex-row md:items-center' : ''}`}
+>
+	{#if video.cover && mode === 'default' && presentation !== 'list'}
+		<div class={`relative overflow-hidden ${presentation === 'banner' ? 'h-24' : 'h-36'}`}>
+			<img
+				src={video.cover}
+				alt=""
+				referrerpolicy="no-referrer"
+				loading="lazy"
+				class="h-full w-full object-cover"
+			/>
+			<div class="absolute inset-0 bg-gradient-to-t from-black/45 to-transparent"></div>
+		</div>
+	{/if}
 	<CardHeader class="shrink-0 pb-1">
 		<div class="flex min-w-0 items-start justify-between gap-3">
 			<CardTitle
@@ -187,25 +191,14 @@
 				<div class="space-y-2">
 					<!-- 进度信息 -->
 					<div class="text-muted-foreground flex justify-between text-xs font-medium">
-						<span class="truncate">下载进度</span>
+						<span class="truncate">任务完成度</span>
 						<span class="shrink-0">{completed}/{total}</span>
 					</div>
-					<!-- 进度条 -->
-					<div class="flex w-full gap-0.5">
-						{#each video.download_status as status, index (index)}
-							<Tooltip.Root>
-								<Tooltip.Trigger class="flex-1">
-									<div
-										class="h-1.5 w-full cursor-help rounded-full transition-all {getSegmentColor(
-											status
-										)}"
-									></div>
-								</Tooltip.Trigger>
-								<Tooltip.Content>
-									<p class="text-xs">{getTaskName(index)}: {getStatusText(status)}</p>
-								</Tooltip.Content>
-							</Tooltip.Root>
-						{/each}
+					<div
+						class="text-primary text-2xl font-semibold tabular-nums"
+						title={video.download_status.map((s, i) => `${getTaskName(i)}: ${getStatusText(s)}`).join('；')}
+					>
+						{total ? Math.round((completed / total) * 100) : 0}<span class="ml-1 text-xs">%</span>
 					</div>
 				</div>
 			{/if}

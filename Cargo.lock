@@ -369,6 +369,7 @@ dependencies = [
  "serde_json",
  "serde_urlencoded",
  "sha1",
+ "sha2 0.10.9",
  "strum 0.28.0",
  "sysinfo",
  "thiserror 2.0.18",

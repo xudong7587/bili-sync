@@ -235,18 +235,28 @@ class ApiClient {
 		return this.get<LibraryJob>('/library/jobs');
 	}
 
+	async storageSummary() {
+		return this.get<{ name: string; bytes: number; count: number }[]>('/dashboard/storage');
+	}
+
 	async cloudSpace() {
 		return this.get<{ total: number; used: number; free: number }>('/cloud/space');
 	}
-	async cloudLoginStart() {
-		return this.post<boolean>('/cloud/login');
+	async cloudLoginStart(client_id: string) {
+		return this.post<boolean>('/cloud/login', { client_id });
 	}
 	async cloudLoginState() {
 		return this.get<{
 			running: boolean;
 			error: string | null;
-			messages: { message_type: number; message: string }[];
+			authorized: boolean;
+			qrcode: string;
+			status: string;
 		}>('/cloud/login');
+	}
+
+	async cloudAccountCheck() {
+		return this.post<boolean>('/cloud/account/check');
 	}
 
 	async searchUppers(keyword: string, page = 1): Promise<ApiResponse<UppersResponse>> {
@@ -360,8 +370,10 @@ const api = {
 	libraryStart: (ids: number[], action: string) => apiClient.libraryStart(ids, action),
 	libraryJob: () => apiClient.libraryJob(),
 
+	storageSummary: () => apiClient.storageSummary(),
 	cloudSpace: () => apiClient.cloudSpace(),
-	cloudLoginStart: () => apiClient.cloudLoginStart(),
+	cloudAccountCheck: () => apiClient.cloudAccountCheck(),
+	cloudLoginStart: (client_id: string) => apiClient.cloudLoginStart(client_id),
 	cloudLoginState: () => apiClient.cloudLoginState(),
 
 	searchUppers: (keyword: string, page = 1) => apiClient.searchUppers(keyword, page),

@@ -192,6 +192,7 @@ async fn baseline(video: &video::Model, page: &page::Model, config: &Config) -> 
         cid: page.cid,
         storage_path,
         cloud,
+        cloud_file_id: None,
         bytes,
         metadata_path: metadata,
         quality,
@@ -338,13 +339,14 @@ async fn process(
             ));
             cd2.upload(temporary.file_path(), &version_path).await?;
             new.storage_path = cd2.remote_path(&version_path)?;
+            new.cloud_file_id = cd2.file_id(&new.storage_path).await.ok();
             // Commit only after upload is confirmed; existing STRM points to the same stable token.
             library::write_strm(&old, config).await?;
             library::save(&new).await?;
         } else {
             let target = Path::new(&old.storage_path);
             let staged = target.with_extension(format!("{}.new", uuid::Uuid::new_v4()));
-            let backup = target.with_extension(format!("{}.backup.mp4", uuid::Uuid::new_v4()));
+            let backup = target.with_extension(format!("{}.mp4.backup", uuid::Uuid::new_v4()));
             tokio::fs::copy(temporary.file_path(), &staged).await?;
             tokio::fs::rename(target, &backup).await?;
             if let Err(error) = tokio::fs::rename(&staged, target).await {

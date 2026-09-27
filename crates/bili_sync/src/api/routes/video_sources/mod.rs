@@ -280,6 +280,7 @@ pub async fn remove_video_source(
     Path((source_type, id)): Path<(String, i32)>,
     Extension(db): Extension<DatabaseConnection>,
 ) -> Result<ApiResponse<bool>, ApiError> {
+    let _guard = crate::task::DownloadTaskManager::get().try_library_lock()?;
     // 不允许删除稍后再看
     let video_source: Option<VideoSourceEnum> = match source_type.as_str() {
         "collections" => collection::Entity::find_by_id(id).one(&db).await?.map(Into::into),
@@ -392,6 +393,7 @@ pub async fn full_sync_video_source(
     Extension(bili_client): Extension<Arc<BiliClient>>,
     Json(request): Json<FullSyncVideoSourceRequest>,
 ) -> Result<ApiResponse<FullSyncVideoSourceResponse>, ApiError> {
+    let _guard = crate::task::DownloadTaskManager::get().try_library_lock()?;
     let video_source: Option<VideoSourceEnum> = match source_type.as_str() {
         "collections" => collection::Entity::find_by_id(id).one(&db).await?.map(Into::into),
         "favorites" => favorite::Entity::find_by_id(id).one(&db).await?.map(Into::into),

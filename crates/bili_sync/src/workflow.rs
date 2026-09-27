@@ -408,7 +408,7 @@ pub async fn download_video_pages(
 
     let base_path = dunce::canonicalize(base_path).context("canonicalize video path failed")?;
     let metadata_base_path = base_path.clone();
-    let video_base_path = StorageLayout::video_path_for(&base_path)?;
+    let video_base_path = StorageLayout::video_path_for_mode(&base_path, cx.config.storage_mode)?;
     if Cd2Client::configured(cx.config)?.is_none() {
         fs::create_dir_all(&video_base_path).await?;
     }
@@ -616,7 +616,7 @@ pub async fn download_page(
     };
     let base_path = dunce::canonicalize(base_path).context("canonicalize base path failed")?;
     let metadata_base_path = base_path.to_path_buf();
-    let video_base_path = StorageLayout::video_path_for(&base_path)?;
+    let video_base_path = StorageLayout::video_path_for_mode(&base_path, cx.config.storage_mode)?;
     let direct_cd2 = Cd2Client::configured(cx.config)?.is_some();
     if !direct_cd2 {
         fs::create_dir_all(&video_base_path).await?;

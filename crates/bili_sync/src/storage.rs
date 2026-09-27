@@ -54,7 +54,11 @@ impl StorageLayout {
     }
 
     pub fn video_path_for(metadata_path: &Path) -> Result<PathBuf> {
-        if crate::config::VersionedConfig::get().read().storage_mode == crate::config::StorageMode::Local {
+        Self::video_path_for_mode(metadata_path, crate::config::VersionedConfig::get().read().storage_mode)
+    }
+
+    pub fn video_path_for_mode(metadata_path: &Path, mode: crate::config::StorageMode) -> Result<PathBuf> {
+        if mode == crate::config::StorageMode::Local {
             return Ok(metadata_path.to_path_buf());
         }
         match Self::from_env()? {
@@ -87,6 +91,15 @@ pub async fn remove_video_files(metadata_path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explicit_local_mode_preserves_subscription_path() {
+        let metadata = Path::new("/media/收藏夹/视频.mp4");
+        assert_eq!(
+            StorageLayout::video_path_for_mode(metadata, crate::config::StorageMode::Local).unwrap(),
+            metadata
+        );
+    }
 
     #[test]
     fn maps_existing_media_paths_to_video_mount() {

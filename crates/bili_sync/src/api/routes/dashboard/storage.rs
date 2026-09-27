@@ -34,11 +34,11 @@ async fn storage() -> Result<ApiResponse<Vec<Folder>>, ApiError> {
             continue;
         };
         let metadata_root = std::env::var("BILI_SYNC_METADATA_ROOT").unwrap_or_else(|_| "/media".to_string());
-        let path = std::path::Path::new(if receipt.cloud {
-            &receipt.storage_path
+        let path = if receipt.cloud {
+            std::path::Path::new(&receipt.storage_path)
         } else {
-            &receipt.metadata_path
-        });
+            receipt.metadata_path.as_path()
+        };
         let base = std::path::Path::new(if receipt.cloud { &root } else { &metadata_root });
         let relative = path.strip_prefix(base).unwrap_or(path);
         let folder = relative

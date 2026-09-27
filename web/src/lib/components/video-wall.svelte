@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SvelteMap } from 'svelte/reactivity';
 	import VideoTable from '$lib/components/video-table.svelte';
 	import VideoCard from '$lib/components/video-card.svelte';
 	import Pagination from '$lib/components/pagination.svelte';
@@ -44,7 +45,6 @@
 	import StatusFilter from '$lib/components/status-filter.svelte';
 	import ValidationFilter from '$lib/components/validation-filter.svelte';
 	import CreatedTimeFilter from '$lib/components/created-time-filter.svelte';
-	import { SvelteMap } from 'svelte/reactivity';
 
 	export let embedded = false;
 	let presentation: 'card' | 'banner' | 'list' = 'card';
@@ -107,7 +107,7 @@
 	let videoSources: VideoSourcesResponse | null = null;
 	let videoSourcesLoaded = false;
 	let filters: Record<string, Filter> | null = null;
-	let sourceMap: SvelteMap<string, { type: string; name: string }> = new SvelteMap();
+	let sourceMap = new SvelteMap<string, { type: string; name: string }>();
 
 	function getApiParams(searchParams: URLSearchParams) {
 		let videoSource = null;
@@ -405,7 +405,7 @@
 				}
 			])
 		);
-		sourceMap.clear();
+		sourceMap = new SvelteMap();
 		for (const source of Object.values(VIDEO_SOURCES)) {
 			const sourceList = videoSources[source.type as keyof VideoSourcesResponse] as VideoSource[];
 			for (const item of sourceList) {
@@ -417,7 +417,7 @@
 		}
 	} else {
 		filters = null;
-		sourceMap.clear();
+		sourceMap = new SvelteMap();
 	}
 
 	onMount(async () => {

@@ -144,7 +144,7 @@
 				data={history.map((h) => h.cpu)}
 				second={history.map((h) => h.memory)}
 				ceiling={100}
-				label="CPU 蓝色与内存橙色占用百分比"
+				label="CPU 主题色与内存橙色占用百分比"
 				unit="%"
 			/>
 			<p class="text-muted-foreground mt-4 text-xs">

@@ -852,36 +852,7 @@
 						{/if}
 					</div>
 
-					<Separator />
-
-					<Separator />
-
-					<div class="space-y-4">
-						<div>
-							<h3 class="text-lg font-semibold">MediaIndex 入库通知</h3>
-							<p class="text-muted-foreground text-sm">
-								视频下载完成后通知 MediaIndex 扫描预先指定的目录。启用本服务 STRM
-								后不再发送此扫描通知；原配置保留。
-							</p>
-						</div>
-						<div class="space-y-2">
-							<Label for="media-index-webhook-url">Webhook 地址</Label>
-							<Input
-								id="media-index-webhook-url"
-								placeholder="https://media.example.com/api/webhooks/..."
-								bind:value={formData.media_index_webhook_url}
-							/>
-						</div>
-						<div class="space-y-2">
-							<Label for="media-index-webhook-token">Webhook 令牌</Label>
-							<PasswordInput
-								id="media-index-webhook-token"
-								placeholder="粘贴 MediaIndex 入站连接的令牌"
-								bind:value={formData.media_index_webhook_token}
-							/>
-						</div>
-					</div>
-
+					<!-- Legacy MediaIndex fields stay in formData for configuration round trips. -->
 					<Separator />
 
 					<div class="flex items-center justify-between rounded-lg border p-4">

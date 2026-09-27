@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import { goto } from '$app/navigation';
 	import { toast } from 'svelte-sonner';
 	import type { Followed } from '$lib/types';
@@ -7,7 +8,7 @@
 		item: Followed | null;
 		onSuccess: (() => void) | null;
 	}
-	let { open = $bindable(false), item = null }: Props = $props();
+	let { open = $bindable(false), item = null, onSuccess: _onSuccess }: Props = $props();
 	// Quick subscriptions use the same complete form as manual subscriptions.
 	$effect(() => {
 		if (!open || !item) return;
@@ -17,7 +18,7 @@
 				: item.type === 'favorite'
 					? 'favorites'
 					: 'collections';
-		const params = new URLSearchParams({
+		const params = new SvelteURLSearchParams({
 			add: type,
 			name: item.type === 'upper' ? item.uname : item.title
 		});

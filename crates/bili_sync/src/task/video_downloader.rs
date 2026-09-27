@@ -68,6 +68,13 @@ impl DownloadTaskManager {
         self.cx.status_rx.clone()
     }
 
+    pub fn try_library_lock(&'static self) -> Result<tokio::sync::MutexGuard<'static, ()>> {
+        self.cx
+            .running
+            .try_lock()
+            .context("下载或画质任务正在运行，请等待完成后重试")
+    }
+
     /// 手动执行一次下载任务
     pub async fn download_once(&self) -> Result<()> {
         let _ = self

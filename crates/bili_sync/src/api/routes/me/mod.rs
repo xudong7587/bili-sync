@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use axum::Router;
 use axum::extract::{Extension, Query};
 use axum::routing::get;
@@ -12,7 +12,7 @@ use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QuerySe
 use crate::api::request::{FollowedCollectionsRequest, FollowedUppersRequest};
 use crate::api::response::{CollectionsResponse, FavoritesResponse, Followed, UppersResponse};
 use crate::api::wrapper::{ApiError, ApiResponse};
-use crate::bilibili::{BiliClient, ErrorForStatusExt, MIXIN_KEY, Me, Validate, WbiSign};
+use crate::bilibili::{BiliClient, ErrorForStatusExt, Me, Validate, WbiSign};
 use crate::config::VersionedConfig;
 
 pub(super) fn router() -> Router {
@@ -208,6 +208,11 @@ async fn search_uppers(
         );
     }
     let credential = &VersionedConfig::get().read().credential;
+    let mixin_key = client
+        .wbi_img(credential)
+        .await?
+        .into_mixin_key()
+        .context("获取搜索签名失败")?;
     let response = client
         .request(
             reqwest::Method::GET,
@@ -217,7 +222,7 @@ async fn search_uppers(
         .await
         .query(&[("search_type", "bili_user"), ("keyword", keyword)])
         .query(&[("page", params.page.unwrap_or(1))])
-        .wbi_sign(MIXIN_KEY.load().as_deref())?
+        .wbi_sign(Some(&mixin_key))?
         .send()
         .await?
         .error_for_status_ext()?

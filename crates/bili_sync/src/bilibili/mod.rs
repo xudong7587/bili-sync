@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-pub use analyzer::{BestStream, FilterOption, Stream};
+pub use analyzer::{BestStream, FilterOption, Stream, VideoQuality};
 use anyhow::{Context, Result, bail, ensure};
 use arc_swap::ArcSwapOption;
 use bili_sync_entity::upper_vec::Upper;

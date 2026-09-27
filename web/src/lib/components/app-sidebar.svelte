@@ -46,9 +46,9 @@
 				category: '内容管理',
 				items: [
 					{
-						title: '视频',
+						title: '媒体库',
 						icon: FilePlayIcon,
-						href: '/videos'
+						href: '/library'
 					},
 					{
 						title: '视频源',

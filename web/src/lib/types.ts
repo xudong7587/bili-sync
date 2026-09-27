@@ -450,3 +450,39 @@ export type QrcodePollResponse =
 			status: 'expired';
 			message: string;
 	  };
+
+export interface SavedQuality {
+	qn?: number;
+	codec?: string;
+	width?: number;
+	height?: number;
+	duration?: number;
+	bitrate?: number;
+	frame_rate?: string;
+}
+export interface LibraryRow {
+	id: number;
+	video_id: number;
+	bvid: string;
+	title: string;
+	part: string;
+	favorite_time: string;
+	downloaded: boolean;
+	metadata_path: string | null;
+	storage_path: string | null;
+	storage: string;
+	quality: SavedQuality | null;
+	comparison: {
+		checked_at: string;
+		current: SavedQuality;
+		candidate: SavedQuality;
+		upgradeable: boolean;
+		message: string;
+	} | null;
+}
+export interface LibraryJob {
+	running: boolean;
+	total: number;
+	completed: number;
+	results: { page_id: number; success: boolean; message: string }[];
+}

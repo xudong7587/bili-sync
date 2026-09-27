@@ -68,6 +68,73 @@ impl Cd2Client {
         }))
     }
 
+    pub async fn space(&self) -> Result<SpaceInfo> {
+        self.call_one(
+            "GetSpaceInfo",
+            &FileRequest {
+                path: self.save_path.clone(),
+            },
+        )
+        .await
+    }
+
+    pub async fn login_115(&self, tx: tokio::sync::mpsc::Sender<QrMessage>) -> Result<()> {
+        let endpoint = self.url.join("clouddrive.CloudDriveFileSrv/APILogin115OpenQRCode")?;
+        let response = self
+            .http
+            .post(endpoint)
+            .header("content-type", "application/grpc-web+proto")
+            .header("accept", "application/grpc-web+proto")
+            .header("x-grpc-web", "1")
+            .bearer_auth(&self.token)
+            .body(vec![0u8; 5])
+            .send()
+            .await?;
+        ensure!(
+            response.status().is_success(),
+            "CD2 登录接口不可用，请检查版本及令牌的网盘账号管理权限"
+        );
+        if let Some(status) = response.headers().get("grpc-status") {
+            ensure!(status == "0", "CD2 拒绝登录请求，请检查令牌的网盘账号管理权限");
+        }
+        use futures::StreamExt;
+        let mut stream = response.bytes_stream();
+        let mut pending = Vec::new();
+        let mut completed = false;
+        while let Some(chunk) = stream.next().await {
+            pending.extend_from_slice(&chunk?);
+            ensure!(pending.len() <= 4 * 1024 * 1024, "二维码响应过大");
+            while pending.len() >= 5 {
+                let length = u32::from_be_bytes(pending[1..5].try_into()?) as usize;
+                ensure!(length <= 4 * 1024 * 1024, "二维码帧过大");
+                if pending.len() < 5 + length {
+                    break;
+                }
+                if pending[0] & 0x80 != 0 {
+                    let trailer = String::from_utf8_lossy(&pending[5..5 + length]);
+                    ensure!(
+                        trailer.lines().any(|line| {
+                            line.split_once(':').is_some_and(|(key, value)| {
+                                key.eq_ignore_ascii_case("grpc-status") && value.trim() == "0"
+                            })
+                        }),
+                        "CD2 登录失败：{trailer}"
+                    );
+                } else {
+                    ensure!(pending[0] == 0, "不支持压缩二维码帧");
+                    let message = QrMessage::decode(&pending[5..5 + length])?;
+                    completed |= message.message_type == 3;
+                    if tx.send(message).await.is_err() {
+                        return Ok(());
+                    }
+                }
+                pending.drain(..5 + length);
+            }
+        }
+        ensure!(completed && pending.is_empty(), "扫码流程已结束但未确认登录，请重试");
+        Ok(())
+    }
+
     pub async fn download(&self, path: &str, range: Option<&str>, head: bool) -> Result<reqwest::Response> {
         let info: DownloadUrlPathInfo = self
             .call_one(
@@ -689,4 +756,26 @@ struct GetDownloadUrlPathRequest {
 struct DownloadUrlPathInfo {
     #[prost(string, tag = "1")]
     download_url_path: String,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct FileRequest {
+    #[prost(string, tag = "1")]
+    path: String,
+}
+#[derive(Clone, PartialEq, Message, serde::Serialize)]
+pub struct SpaceInfo {
+    #[prost(int64, tag = "1")]
+    pub total: i64,
+    #[prost(int64, tag = "2")]
+    pub used: i64,
+    #[prost(int64, tag = "3")]
+    pub free: i64,
+}
+#[derive(Clone, PartialEq, Message, serde::Serialize)]
+pub struct QrMessage {
+    #[prost(int32, tag = "1")]
+    pub message_type: i32,
+    #[prost(string, tag = "2")]
+    pub message: String,
 }

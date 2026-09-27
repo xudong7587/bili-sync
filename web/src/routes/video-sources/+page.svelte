@@ -903,7 +903,7 @@
 									{upperSearchError}
 								</p>{/if}
 							{#if upperResults.length}<div class="mb-4 max-h-64 overflow-y-auto rounded-lg border">
-									{#each upperResults as upper}
+									{#each upperResults as upper (upper.mid)}
 										{#if upper.type === 'upper'}<button
 												class="flex w-full items-center justify-between gap-3 border-b p-3 text-left hover:bg-accent"
 												onclick={() => chooseUpper(upper)}

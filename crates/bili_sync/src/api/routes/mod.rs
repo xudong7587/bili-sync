@@ -10,6 +10,7 @@ use reqwest::StatusCode;
 use crate::api::wrapper::ApiResponse;
 use crate::config::VersionedConfig;
 
+mod cloud;
 mod config;
 mod dashboard;
 mod library;
@@ -27,6 +28,8 @@ pub fn router() -> Router {
         "/api",
         config::router()
             .merge(me::router())
+            .merge(cloud::router())
+            .merge(library::router())
             .merge(login::router())
             .merge(video_sources::router())
             .merge(videos::router())

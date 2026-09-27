@@ -12,6 +12,8 @@ import type {
 	InsertCollectionRequest,
 	InsertFavoriteRequest,
 	InsertSubmissionRequest,
+	LibraryJob,
+	LibraryRow,
 	Notifier,
 	QrcodePollResponse as PollQrcodeResponse,
 	ResetFilteredVideosResponse,
@@ -223,6 +225,30 @@ class ApiClient {
 		return this.get<UppersResponse>('/me/uppers', params as Record<string, unknown>);
 	}
 
+	async libraryVideos(params: Record<string, unknown>) {
+		return this.get<{ rows: LibraryRow[]; total: number }>('/library/videos', params);
+	}
+	async libraryStart(page_ids: number[], action: string) {
+		return this.post<boolean>('/library/jobs', { page_ids, action });
+	}
+	async libraryJob() {
+		return this.get<LibraryJob>('/library/jobs');
+	}
+
+	async cloudSpace() {
+		return this.get<{ total: number; used: number; free: number }>('/cloud/space');
+	}
+	async cloudLoginStart() {
+		return this.post<boolean>('/cloud/login');
+	}
+	async cloudLoginState() {
+		return this.get<{
+			running: boolean;
+			error: string | null;
+			messages: { message_type: number; message: string }[];
+		}>('/cloud/login');
+	}
+
 	async searchUppers(keyword: string, page = 1): Promise<ApiResponse<UppersResponse>> {
 		return this.get<UppersResponse>('/uppers/search', { keyword, page });
 	}
@@ -330,6 +356,14 @@ const api = {
 	getCreatedFavorites: () => apiClient.getCreatedFavorites(),
 	getFollowedCollections: (pageNum?: number, pageSize?: number) =>
 		apiClient.getFollowedCollections(pageNum, pageSize),
+	libraryVideos: (params: Record<string, unknown>) => apiClient.libraryVideos(params),
+	libraryStart: (ids: number[], action: string) => apiClient.libraryStart(ids, action),
+	libraryJob: () => apiClient.libraryJob(),
+
+	cloudSpace: () => apiClient.cloudSpace(),
+	cloudLoginStart: () => apiClient.cloudLoginStart(),
+	cloudLoginState: () => apiClient.cloudLoginState(),
+
 	searchUppers: (keyword: string, page = 1) => apiClient.searchUppers(keyword, page),
 	getFollowedUppers: (pageNum?: number, pageSize?: number, name?: string) =>
 		apiClient.getFollowedUppers(pageNum, pageSize, name),

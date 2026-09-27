@@ -51,3 +51,99 @@ async fn play(Path((video_id, cid, token)): Path<(i32, i64, String)>, headers: H
         .body(Body::from_stream(response.bytes_stream()))
         .unwrap_or_else(|_| StatusCode::BAD_GATEWAY.into_response())
 }
+
+#[derive(serde::Deserialize)]
+struct LibraryQuery {
+    favorite: Option<i32>,
+    submission: Option<i32>,
+    collection: Option<i32>,
+    query: Option<String>,
+    page: Option<u64>,
+}
+#[derive(serde::Serialize)]
+struct LibraryRow {
+    id: i32,
+    video_id: i32,
+    bvid: String,
+    title: String,
+    part: String,
+    favorite_time: String,
+    downloaded: bool,
+    metadata_path: Option<String>,
+    storage_path: Option<String>,
+    storage: String,
+    quality: Option<library::SavedQuality>,
+    comparison: Option<crate::quality::Comparison>,
+}
+
+pub fn router() -> Router {
+    Router::new()
+        .route("/library/videos", get(list))
+        .route("/library/jobs", axum::routing::post(start_job).get(job_status))
+}
+async fn list(
+    axum::extract::Extension(db): axum::extract::Extension<sea_orm::DatabaseConnection>,
+    axum::extract::Query(query): axum::extract::Query<LibraryQuery>,
+) -> Result<crate::api::wrapper::ApiResponse<serde_json::Value>, crate::api::wrapper::ApiError> {
+    use bili_sync_entity::{page, video};
+    use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder};
+    let mut videos = video::Entity::find();
+    for (id, column) in [
+        (query.favorite, video::Column::FavoriteId),
+        (query.collection, video::Column::CollectionId),
+        (query.submission, video::Column::SubmissionId),
+    ] {
+        if let Some(id) = id {
+            videos = videos.filter(column.eq(id));
+        }
+    }
+    if let Some(word) = query.query.filter(|q| !q.is_empty()) {
+        videos = videos.filter(video::Column::Name.contains(word));
+    }
+    let pages = videos.order_by_desc(video::Column::Favtime).paginate(&db, 25);
+    let total = pages.num_items().await?;
+    let mut rows = Vec::new();
+    for video in pages.fetch_page(query.page.unwrap_or(0)).await? {
+        let parts = page::Entity::find()
+            .filter(page::Column::VideoId.eq(video.id))
+            .order_by_asc(page::Column::Pid)
+            .all(&db)
+            .await?;
+        for part in parts {
+            let receipt = library::load(video.id, part.cid).await?;
+            let downloaded = ((part.download_status >> 3) & 7) == 7;
+            rows.push(LibraryRow {
+                id: part.id,
+                video_id: video.id,
+                bvid: video.bvid.clone(),
+                title: video.name.clone(),
+                part: part.name,
+                favorite_time: video.favtime.to_string(),
+                downloaded,
+                metadata_path: part.path,
+                storage_path: receipt.as_ref().map(|r| r.storage_path.clone()),
+                storage: receipt
+                    .as_ref()
+                    .map(|r| if r.cloud { "115" } else { "local" })
+                    .unwrap_or("unknown")
+                    .to_owned(),
+                quality: receipt.map(|r| r.quality),
+                comparison: crate::quality::load_comparison(part.id).await?,
+            });
+        }
+    }
+    Ok(crate::api::wrapper::ApiResponse::ok(
+        serde_json::json!({ "rows": rows, "total": total }),
+    ))
+}
+async fn start_job(
+    axum::extract::Extension(db): axum::extract::Extension<sea_orm::DatabaseConnection>,
+    axum::extract::Extension(client): axum::extract::Extension<std::sync::Arc<crate::bilibili::BiliClient>>,
+    axum::Json(request): axum::Json<crate::quality::BatchRequest>,
+) -> Result<crate::api::wrapper::ApiResponse<bool>, crate::api::wrapper::ApiError> {
+    crate::quality::start(db, client, request).await?;
+    Ok(crate::api::wrapper::ApiResponse::ok(true))
+}
+async fn job_status() -> crate::api::wrapper::ApiResponse<crate::quality::JobState> {
+    crate::api::wrapper::ApiResponse::ok(crate::quality::status())
+}

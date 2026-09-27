@@ -20,6 +20,7 @@
 	import InfoIcon from '@lucide/svelte/icons/info';
 	import QrCodeIcon from '@lucide/svelte/icons/qr-code';
 	import api from '$lib/api';
+	import CloudAccount from '$lib/components/cloud-account.svelte';
 	import { toast } from 'svelte-sonner';
 	import { setBreadcrumb } from '$lib/stores/breadcrumb';
 	import type { Config, ApiError, Notifier, Credential, DanmakuUpdateMilestone } from '$lib/types';
@@ -1012,6 +1013,7 @@
 					</div>
 				</Tabs.Content>
 				<Tabs.Content value="cloud" class="mt-6 space-y-6">
+					<CloudAccount />
 					<div class="space-y-4">
 						<div>
 							<h3 class="text-lg font-semibold">CloudDrive2 直传 115</h3>
@@ -1067,7 +1069,7 @@
 						<p class="text-muted-foreground mt-2 text-sm">立即生效，保存在当前浏览器中。</p>
 					</div>
 					<div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
-						{#each themes as theme}
+						{#each themes as theme (theme.id)}
 							<button
 								class="flex items-center gap-3 rounded-xl border p-4 text-left transition-colors hover:bg-accent"
 								class:ring-2={selectedTheme === theme.id}

@@ -18,6 +18,12 @@ const CHUNK_SIZE: usize = 2 * 1024 * 1024;
 const UPLOAD_TIMEOUT: Duration = Duration::from_secs(6 * 60 * 60);
 const POLL_INTERVAL: Duration = Duration::from_secs(5);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UploadOutcome {
+    Uploaded,
+    Reused,
+}
+
 pub struct Cd2Client {
     http: Client,
     url: Url,
@@ -239,7 +245,7 @@ impl Cd2Client {
         Ok(())
     }
 
-    pub async fn upload(&self, local_file: &Path, metadata_file: &Path) -> Result<()> {
+    pub async fn upload(&self, local_file: &Path, metadata_file: &Path) -> Result<UploadOutcome> {
         let remote_file = self.remote_path(metadata_file)?;
         let (remote_dir, file_name) = remote_file.rsplit_once('/').context("CD2 目标路径无效")?;
         self.ensure_directory(remote_dir).await?;
@@ -259,7 +265,7 @@ impl Cd2Client {
                 "CD2 目标文件已存在且无法确认内容一致：{remote_file}；请先确认云端状态，避免覆盖"
             );
             tracing::info!("CD2 云端视频校验一致，复用已上传文件：{remote_file}");
-            return Ok(());
+            return Ok(UploadOutcome::Reused);
         }
         let previous_keys = self.upload_keys(&remote_file).await?;
         let create: CreateFileResult = self
@@ -284,7 +290,8 @@ impl Cd2Client {
         transfer?;
         let close = close?;
         ensure!(close.success, "CD2 关闭文件失败：{}", close.error_message);
-        self.wait_for_upload(&remote_file, size, &hash, &previous_keys).await
+        self.wait_for_upload(&remote_file, size, &hash, &previous_keys).await?;
+        Ok(UploadOutcome::Uploaded)
     }
 
     async fn write_file(&self, local_file: &Path, file_handle: u64, size: u64) -> Result<()> {

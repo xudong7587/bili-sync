@@ -27,6 +27,9 @@ pub struct FileReceipt {
     pub metadata_path: PathBuf,
     pub storage_path: String,
     pub cloud: bool,
+    /// A newly confirmed upload still awaiting metadata completion and notification queueing.
+    #[serde(default)]
+    pub upload_notification_pending: bool,
     #[serde(default)]
     pub cloud_file_id: Option<String>,
     pub bytes: u64,
@@ -140,6 +143,20 @@ pub async fn probe(path: &Path, mut quality: SavedQuality) -> Result<SavedQualit
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn old_receipts_do_not_reannounce_historical_cloud_files() {
+        let old = serde_json::json!({
+            "video_id": 1, "cid": 2, "metadata_path": "/media/a.mp4", "storage_path": "/cloud/a.mp4",
+            "cloud": true, "bytes": 10, "quality": {}, "uploaded_at": "", "playback_token": "test"
+        });
+        let receipt: FileReceipt = serde_json::from_value(old).unwrap();
+        assert!(!receipt.upload_notification_pending);
+        let mut new = receipt;
+        new.upload_notification_pending = true;
+        let restarted: FileReceipt = serde_json::from_slice(&serde_json::to_vec(&new).unwrap()).unwrap();
+        assert!(restarted.upload_notification_pending);
+    }
+
     #[tokio::test]
     async fn reset_invalidates_only_active_receipts_for_the_selected_video() {
         let dir = std::env::temp_dir().join(format!("bili-reset-{}", uuid::Uuid::new_v4()));

@@ -58,7 +58,14 @@ pub async fn mark_pending() -> Result<()> {
     }
     let _guard = PENDING_LOCK.lock().await;
     fs::create_dir_all(&*CONFIG_DIR).await?;
-    crate::library::atomic_write(&pending_path(), uuid::Uuid::new_v4().to_string().as_bytes()).await?;
+    queue_pending_at(&pending_path()).await
+}
+
+async fn queue_pending_at(path: &Path) -> Result<()> {
+    // Coalesce uploads in the same source batch and retain the ID of failed deliveries.
+    if !fs::try_exists(path).await? {
+        crate::library::atomic_write(path, uuid::Uuid::new_v4().to_string().as_bytes()).await?;
+    }
     Ok(())
 }
 
@@ -110,6 +117,51 @@ async fn deliver_pending(webhook: &Webhook, path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn empty_cycles_do_not_notify_and_multiple_uploads_share_one_event() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        use axum::Router;
+        use axum::routing::post;
+        let requests = Arc::new(AtomicUsize::new(0));
+        let seen = requests.clone();
+        let app = Router::new().route(
+            "/notify",
+            post(move || {
+                let seen = seen.clone();
+                async move {
+                    seen.fetch_add(1, Ordering::SeqCst);
+                    axum::http::StatusCode::ACCEPTED
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let webhook = Webhook {
+            url: format!("http://{}/notify", listener.local_addr().unwrap()),
+            token: String::new(),
+        };
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let dir = std::env::temp_dir().join(format!("bili-no-spam-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).await.unwrap();
+        let path = dir.join("pending");
+        for _ in 0..3 {
+            deliver_pending(&webhook, &path).await.unwrap();
+        }
+        assert_eq!(requests.load(Ordering::SeqCst), 0);
+        queue_pending_at(&path).await.unwrap();
+        let id = fs::read(&path).await.unwrap();
+        queue_pending_at(&path).await.unwrap();
+        assert_eq!(fs::read(&path).await.unwrap(), id);
+        deliver_pending(&webhook, &path).await.unwrap();
+        for _ in 0..3 {
+            deliver_pending(&webhook, &path).await.unwrap();
+        }
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+        server.abort();
+        fs::remove_dir_all(dir).await.unwrap();
+    }
 
     #[tokio::test]
     async fn failed_or_redirected_delivery_remains_pending_and_success_clears_it() {

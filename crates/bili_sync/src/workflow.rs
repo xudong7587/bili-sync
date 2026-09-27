@@ -694,20 +694,21 @@ pub async fn download_page(
             cx
         )
     );
-    // Persist the completion notification before committing the successful page state.
-    // A retry of failed metadata also queues the signal; no cloud directory scan here.
+    // Metadata-only refreshes and reused cloud files must not trigger a scan.
+    // The receipt flag survives a metadata failure; consume it only once metadata is ready.
     if direct_cd2
-        && separate_status.iter().any(|pending| *pending)
         && res_1.is_ok()
         && res_2.is_ok()
         && res_3.is_ok()
         && res_4.is_ok()
         && res_5.is_ok()
+        && let Some(mut receipt) = crate::library::load(video_model.id, page_info.cid).await?
+        && receipt.cloud
+        && receipt.upload_notification_pending
     {
         crate::media_index::mark_pending().await?;
-        if let Err(error) = crate::media_index::flush_pending().await {
-            warn!("MediaIndex 通知待重试：{error:#}");
-        }
+        receipt.upload_notification_pending = false;
+        crate::library::save(&receipt).await?;
     }
     let results = [res_1.into(), res_2.into(), res_3.into(), res_4.into(), res_5.into()];
     status.update_status(&results);
@@ -878,7 +879,7 @@ pub async fn fetch_page_video(
                 .await
                 .unwrap_or(saved_quality);
             let bytes = fs::metadata(temp_file.file_path()).await?.len();
-            cd2.upload(temp_file.file_path(), &metadata_path).await?;
+            let upload_outcome = cd2.upload(temp_file.file_path(), &metadata_path).await?;
             let storage_path = cd2.remote_path(&metadata_path)?;
             let receipt = crate::library::FileReceipt {
                 video_id: video_model.id,
@@ -887,6 +888,7 @@ pub async fn fetch_page_video(
                 cloud_file_id: cd2.file_id(&storage_path).await.ok(),
                 storage_path,
                 cloud: true,
+                upload_notification_pending: upload_outcome == crate::cd2::UploadOutcome::Uploaded,
                 bytes,
                 quality,
                 uploaded_at: chrono::Utc::now().to_rfc3339(),
@@ -944,6 +946,7 @@ pub async fn fetch_page_video(
         metadata_path,
         storage_path: page_path.to_string_lossy().into_owned(),
         cloud: false,
+        upload_notification_pending: false,
         cloud_file_id: None,
         bytes: fs::metadata(page_path).await?.len(),
         quality,

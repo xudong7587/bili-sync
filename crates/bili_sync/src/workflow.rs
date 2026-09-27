@@ -432,7 +432,7 @@ pub async fn download_video_pages(
         .collect::<Vec<_>>();
     // 对于单页视频，page 的下载已经足够
     // 对于多页视频，page 下载仅包含了分集内容，需要额外补上视频的 poster 的 tvshow.nfo
-    let (res_1, mut res_2, res_3, res_4, res_5) = tokio::join!(
+    let (res_1, res_2, res_3, res_4, res_5) = tokio::join!(
         // 下载视频封面
         fetch_video_poster(
             separate_status[0] && !is_single_page && !cx.config.skip_option.no_poster,
@@ -464,19 +464,6 @@ pub async fn download_video_pages(
         // 分发并执行分页下载的任务
         dispatch_download_page(separate_status[4], &video_model, page_models, &base_path, cx)
     );
-    // Publish STRM only after the concurrent metadata work has completed.
-    if res_2.is_ok() && res_3.is_ok() && !cx.config.strm_base_url.is_empty() {
-        let publish = async {
-            if let Some(receipt) = crate::library::load(video_model.id, page_info.cid).await? {
-                crate::library::write_strm(&receipt, cx.config).await?;
-            }
-            Result::<()>::Ok(())
-        }
-        .await;
-        if let Err(error) = publish {
-            res_2 = Err(error);
-        }
-    }
     let results = [res_1.into(), res_2.into(), res_3.into(), res_4.into(), res_5.into()];
     status.update_status(&results);
     results

@@ -7,8 +7,11 @@
 - **视频单独存储**：支持原有的 `/video` 分离挂载，也支持通过 CloudDrive2 API 将新 MP4 直接上传到 115；直传模式会等待 CD2 上传任务完成。
 - **元数据留在本地**：NFO、海报、字幕、弹幕等写入 `/media`，与视频保持相同的相对目录结构，供 Emby 读取。
 - **兼容原配置**：视频源路径仍使用 `/media/...`；复用原有配置目录后，`config.toml`、数据库和订阅设置无需重建。启用分离不会自动搬迁以前下载的文件。
-- **可联动 [MediaIndex](https://github.com/xudong7587/media-index)**：下载完成后发送入库通知，由 MediaIndex 扫描网盘目录、生成 STRM，并刷新 Emby。Webhook 地址和令牌在 bili-sync 管理页的「设置 → 通知设置 → MediaIndex 入库通知」中填写。
-- **CD2 直传设置**：在「设置 → 通知设置 → CloudDrive2 直传 115」填写 CD2 地址、API 令牌和 CD2 内的 115 保存根目录。三个字段同时填写后启用；原有媒体源和数据库路径仍是 `/media/...`。
+- **自动生成 STRM**：在网盘分流中设置播放器可访问的 bili-sync 地址。每个视频上传完成后，直接在对应的本地目录生成同名 STRM，不需要目录扫描或 MediaIndex。播放地址保持稳定，支持分段读取。
+- **可选联动 [MediaIndex](https://github.com/xudong7587/media-index)**：原 Webhook 配置保留在通知设置中。启用本服务 STRM 后，不再发送旧的 MediaIndex 目录扫描通知。
+- **媒体库与画质管理**：点击视频源名称查看收藏时间、下载状态、保存位置及画质。手动选择视频批量对比和升级；先验证实际文件再切换，旧版本保留。页面默认只读取本地记录。
+- **订阅与界面**：快捷订阅使用完整的配置表单；支持 UP 名称搜索。设置直接从侧栏进入，可切换六种主题色，设置刷新时间段和随机等待。
+- **CD2 直传设置**：在「网盘分流 → CloudDrive2 · 115」填写 CD2 地址、API 令牌和 CD2 内的 115 保存根目录。三个字段同时填写后启用；原有媒体源和数据库路径仍是 `/media/...`。
 
 ## Docker Compose
 
@@ -28,3 +31,7 @@ docker compose -f docker-compose.yaml up -d
 现有视频源和追更路径不需要改为 `/video`。首次切换前请备份配置与元数据；已有视频对应的 NFO、图片等需要自行复制到新的本地 `/media` 目录。详细说明见 [视频与元数据分离](./docs/split-storage-media-index.md)。
 
 上游使用说明和其他功能请参阅 [bili-sync 文档](https://bili-sync.amto.cc/)。本分支沿用上游 [License](./License)。
+
+## 媒体库工作台（开发分支）
+
+新流程与迁移说明见 [媒体库工作台](./docs/library-workspace.md)。当前改动在开发分支验证中，仓库 Compose 中的已发布镜像不会自动包含尚未发布的功能。

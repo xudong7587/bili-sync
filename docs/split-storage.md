@@ -1,35 +1,25 @@
 # 视频与元数据分离（可选）
 
-此模式把 NFO、海报、fanart、弹幕和字幕写到本地 `/media`，MP4 则可写入 `/video` 挂载目录，或通过 CloudDrive2 API 直接上传到 115。两侧的相对目录和文件名保持一致；订阅和数据库继续使用原有的 `/media` 路径。
+此模式把 NFO、海报、fanart、弹幕和字幕写到本地 `/media`，MP4 通过 CloudDrive2 API 上传到网盘（本地模式则与元数据一起保存）。两侧的相对目录和文件名保持一致；订阅和数据库继续使用原有的 `/media` 路径。
 
-## Docker 挂载与环境变量
+## Docker 挂载与保存方式
 
-仓库根目录提供带注释的通用 [docker-compose.yaml](../docker-compose.yaml)。先将其中的 `/path/to/...` 宿主机路径改为实际目录。
+仓库根目录提供带注释的通用 [docker-compose.yaml](../docker-compose.yaml)。新部署只需配置目录和 `/media` 两个挂载，进入「视频网盘分流」选择本地或 CD2。
 
-```yaml
-services:
-  bili-sync-rs:
-    image: ghcr.io/xudong7587/bili-sync:bili115-2026.09.26.3
-    volumes:
-      - /path/to/bili-sync-config:/app/.config/bili-sync
-      - /path/to/local-metadata:/media
-      - /path/to/video-storage:/video
-    environment:
-      BILI_SYNC_METADATA_ROOT: /media
-      BILI_SYNC_VIDEO_ROOT: /video
-```
+- **本地**：视频、NFO、封面等一起写入订阅目录，按原版方式使用。
+- **CD2**：视频先下载、合并到本地临时目录，再经 CloudDrive2 API 上传网盘；元数据保存在 `/media`。不需要 `/video` 挂载。已有实例可以保留旧挂载，升级不自动移动文件。
 
-视频源在 bili-sync 中仍填写 `/media/...`，不用修改旧订阅。例如数据库中的 `/media/earth/视频/BV1.mp4` 对应实际视频 `/video/earth/视频/BV1.mp4` 和本地元数据 `/media/earth/视频/BV1.nfo`。Emby 扫描本地元数据目录；CD2 直传完成后可通知 MediaIndex 在该目录生成 STRM。
+视频源路径仍填写 `/media/...`。例如本地 `/media/basketball/视频/BV1.nfo` 对应网盘保存根目录下 `basketball/视频/BV1.mp4`。
 
-新版通过 MediaIndex Webhook 通知生成 STRM，也可自行配置外部 STRM 工具的事件或定时扫描。通用 Webhook 通知器不受影响。
+### CD2 API 网盘直传
 
-### CD2 API 直传 115
+填写 CD2 地址、API 令牌和网盘保存根目录。路径相对于令牌授权的根目录；如果令牌已限定到某个网盘，请直接填写 `/媒体库/Bilibili` 等相对该授权根目录的绝对路径，不要重复加网盘名。
 
-保存路径相对于 API 令牌允许访问的根目录。如果令牌已经限定到 `/115open`，应填写 `/媒体库/08Bilibili`，不要重复添加 `/115open` 前缀。
+请确认目标网盘已在 CD2 登录并允许上传。CD2 官方列出 115、123 云盘、阿里云盘、天翼云盘等，具体以 [官方列表](https://www.clouddrive2.com/features.html) 和安装版本为准，夸克暂未列入官方列表。本程序完成校验需要云端文件 ID、大小和 SHA1；115 已实测，其余网盘需单独验证上传能力。连接测试仅检查目录和容量。
 
-在「网盘分流 → CloudDrive2 · 115」填写 CD2 地址、API 令牌和 CD2 内的保存根目录，例如 `/115/媒体库/08Bilibili`。选择网盘模式时，三个字段必须同时填写；只有兼容模式才会沿用旧的 `/video` 挂载写入。选择本地模式则按原版方式把视频与元数据放在一起。直传时，bili-sync 先在容器临时目录下载、合并 MP4，再通过 CD2 API 分块写入 115，并等待 CD2 上传任务变为完成；确认云端文件后才更新分页下载状态，并在启用了 MediaIndex 入库联动时发送完成通知。CD2 上传失败或超时会保留未完成状态，供下轮重试。请给容器临时目录留出足够空间容纳正在处理的视频。
+上传完成并确认云端文件后才更新下载状态；上传失败或超时保留未完成状态供下轮重试。请给本地临时目录留出足够空间容纳并发处理的视频。
 
-例如，本地 `/media/basketball/视频/BV1.nfo` 对应 115 中 `/115/媒体库/08Bilibili/basketball/视频/BV1.mp4`。在 MediaIndex 中配置对应的网盘扫描目录与本地元数据输出目录，由其管理 STRM 与播放服务。CD2 直传不需要写入 `/video`，但旧 compose 的映射可以保留以便平滑切换。不要同时运行两个实例处理同一份订阅数据库。
+启用 MediaIndex 入库联动后，上传完成会发送 Webhook。在 MediaIndex 配置网盘扫描目录及对应的本地元数据输出目录，由其生成 STRM 并管理播放服务。也可配置支持目标网盘的其他 STRM 工具，以事件或定时扫描生成 STRM；通用通知器不受影响。
 
 ### 现有文件
 

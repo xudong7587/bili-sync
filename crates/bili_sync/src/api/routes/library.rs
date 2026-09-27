@@ -144,7 +144,7 @@ async fn list(
                 storage_path: receipt.as_ref().map(|r| r.storage_path.clone()),
                 storage: receipt
                     .as_ref()
-                    .map(|r| if r.cloud { "115" } else { "local" })
+                    .map(|r| if r.cloud { "cloud" } else { "local" })
                     .unwrap_or("unknown")
                     .to_owned(),
                 comparison: crate::quality::load_comparison(part.id, receipt.as_ref()).await?,

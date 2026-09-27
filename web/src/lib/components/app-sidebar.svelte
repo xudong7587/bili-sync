@@ -73,8 +73,8 @@
 				]
 			},
 			{
-				category: '网盘分流',
-				items: [{ title: 'CloudDrive2 · 115', icon: CloudIcon, href: '/settings?section=cloud' }]
+				category: '存储',
+				items: [{ title: '视频网盘分流', icon: CloudIcon, href: '/settings?section=cloud' }]
 			},
 			{
 				category: '设置',

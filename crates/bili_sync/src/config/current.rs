@@ -28,6 +28,8 @@ pub static CONFIG_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
 #[derive(Serialize, Deserialize, Clone, Copy, Default, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum StorageMode {
+    // Read legacy configurations without silently changing their existing paths.
+    // New installations and the settings UI only offer Local / Cloud.
     #[default]
     Auto,
     Local,
@@ -163,7 +165,7 @@ impl Default for Config {
             page_name: "{{bvid}}".to_owned(),
             notifiers: None,
             ignore_common_errors: false,
-            storage_mode: StorageMode::Auto,
+            storage_mode: StorageMode::Local,
             cd2_url: String::new(),
             cd2_token: String::new(),
             cd2_save_path: String::new(),

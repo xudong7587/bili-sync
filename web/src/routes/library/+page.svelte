@@ -143,7 +143,7 @@
 				aria-label="保存位置筛选"
 				class="rounded-md border bg-background px-3 py-2"
 				bind:value={storage}
-				><option value="all">所有保存位置</option><option value="115">115 网盘</option><option
+				><option value="all">所有保存位置</option><option value="cloud">网盘</option><option
 					value="local">本地</option
 				><option value="unknown">待核实的旧记录</option></select
 			>
@@ -250,8 +250,8 @@
 							<p class="text-muted-foreground mt-2 text-xs">{row.favorite_time}</p></td
 						><td class="max-w-80 p-4"
 							><span class="inline-flex rounded-full bg-muted px-2 py-1 text-xs"
-								>{row.downloaded ? '已下载' : '未完成'} · {row.storage === '115'
-									? '115'
+								>{row.downloaded ? '已下载' : '未完成'} · {row.storage === 'cloud'
+									? '网盘'
 									: row.storage === 'local'
 										? '本地'
 										: '待核实'}</span

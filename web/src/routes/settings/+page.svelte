@@ -4,6 +4,7 @@
 	import { themes, applyTheme, getTheme } from '$lib/theme';
 	let selectedTheme = getTheme();
 	$: section = $page.url.searchParams.get('section') || 'basic';
+	$: setBreadcrumb([{ label: section === 'cloud' ? '视频网盘分流' : '设置' }]);
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
@@ -109,7 +110,9 @@
 				media_index_webhook_token: '',
 				...config
 			};
-			formData.storage_mode ??= 'auto';
+			if (!formData.storage_mode || formData.storage_mode === 'auto') {
+				formData.storage_mode = formData.cd2_url?.trim() ? 'cloud' : 'local';
+			}
 
 			formData.refresh_schedule ??= {
 				start: '',
@@ -246,14 +249,13 @@
 	}
 
 	onMount(() => {
-		setBreadcrumb([{ label: '设置' }]);
 		frontendToken = api.getAuthToken() || '';
 		loadConfig();
 	});
 </script>
 
 <svelte:head>
-	<title>设置 - Bili Sync</title>
+	<title>{section === 'cloud' ? '视频网盘分流' : '设置'} - Bili Sync</title>
 </svelte:head>
 
 <div class="space-y-6">
@@ -990,6 +992,7 @@
 					</div>
 				</Tabs.Content>
 				<Tabs.Content value="cloud" class="mt-6 space-y-6">
+					<h2 class="text-xl font-semibold">视频网盘分流</h2>
 					<div class="space-y-3 rounded-xl border p-5">
 						<Label for="storage-mode">新视频保存方式</Label>
 						<select
@@ -997,12 +1000,11 @@
 							class="w-full rounded-md border bg-background p-3"
 							bind:value={formData.storage_mode}
 						>
-							<option value="local">本地存储 · 视频和元数据保存在订阅目录</option>
-							<option value="cloud">网盘分流 · 视频上传 115，元数据保存在本地</option>
-							<option value="auto">沿用现有配置 · 兼容原来的 CD2 / 分离挂载设置</option>
+							<option value="local">本地 · 视频和元数据保存在订阅目录</option>
+							<option value="cloud">CD2 · 视频上传网盘，元数据保存在本地</option>
 						</select>
 						<p class="text-sm text-muted-foreground">
-							切换只影响后续保存，不搬移已有视频。本地模式不需要 115 登录或 CD2，视频与
+							切换只影响后续保存，不搬移已有视频。本地模式不需要网盘或 CD2，视频与
 							NFO、图片一起保存在原订阅路径。
 						</p>
 					</div>
@@ -1010,12 +1012,32 @@
 						<!-- Independent 115 login is reserved for a future optional playback channel. -->
 						<div class="space-y-4">
 							<div>
-								<h3 class="text-lg font-semibold">CloudDrive2 直传 115</h3>
+								<h3 class="text-lg font-semibold">CloudDrive2 网盘直传</h3>
 								<p class="text-muted-foreground text-sm">
-									填写三项后，新视频先下载到容器临时目录，再经 CD2 上传到 115。使用 CD2 已登录的 115
-									账号，无需再次扫码。确认上传完成后可通知 MediaIndex 生成 STRM；NFO 和图片仍保存在
-									/media。网盘分流模式需填写完整。
+									填写三项后，新视频先下载到容器临时目录，再经 CD2 上传到所选网盘。使用 CD2
+									已登录的网盘 账号，无需再次扫码。确认上传完成后可通知 MediaIndex 生成 STRM；NFO
+									和图片仍保存在 /media。网盘分流模式需填写完整。
 								</p>
+							</div>
+							<div class="rounded-xl bg-muted/50 p-4 text-sm leading-relaxed text-muted-foreground">
+								<p>
+									CD2 官方支持 115、123 云盘、阿里云盘、天翼云盘、百度网盘、OneDrive 等。请选择已在
+									CD2 登录且允许上传的网盘，并确认 STRM 工具支持该网盘。
+								</p>
+								<p class="mt-2">
+									夸克暂未列入 CD2 官方支持列表。具体接入与上传能力以你安装的 CD2 版本为准。
+								</p>
+								<p class="mt-2 text-xs">
+									当前直传完成校验需要 CD2 返回云端文件 ID、大小和
+									SHA1；尚未逐一验证所有网盘。连接测试仅检查目录访问和容量，不代表上传及 STRM
+									链路已验证。
+								</p>
+								<a
+									class="mt-2 inline-block text-primary underline underline-offset-4"
+									href="https://www.clouddrive2.com/features.html"
+									target="_blank"
+									rel="noreferrer">查看 CD2 官方支持列表 ↗</a
+								>
 							</div>
 							<div class="space-y-2">
 								<Label for="cd2-url">CD2 地址</Label>
@@ -1034,7 +1056,7 @@
 								/>
 							</div>
 							<div class="space-y-2">
-								<Label for="cd2-save-path">115 保存根目录（CD2 内路径）</Label>
+								<Label for="cd2-save-path">网盘保存根目录（CD2 内路径）</Label>
 								<Input
 									id="cd2-save-path"
 									placeholder="/媒体库/Bilibili"
@@ -1088,8 +1110,9 @@
 								</p>
 							{/if}
 							<div class="rounded-lg bg-muted/60 p-3 text-xs leading-relaxed text-muted-foreground">
-								没有 MediaIndex？可自行配置其他 STRM 工具，例如 MP 的 115STRM 插件，通过 115
-								生活事件扫描或定时增量扫描生成 STRM。bili-sync
+								没有 MediaIndex？可自行配置其他 STRM
+								工具，使用支持目标网盘的事件或定时增量扫描功能。115 用户可使用 MP 的 115STRM
+								插件，通过 115 生活事件扫描或定时增量扫描生成 STRM。bili-sync
 								负责上传视频和保存元数据，播放链接与播放服务由所选工具管理。
 							</div>
 						</div>

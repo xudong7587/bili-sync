@@ -111,6 +111,22 @@ async fn list(
             .order_by_asc(page::Column::Pid)
             .all(&db)
             .await?;
+        if parts.is_empty() {
+            rows.push(LibraryRow {
+                id: -video.id,
+                video_id: video.id,
+                bvid: video.bvid.clone(),
+                title: video.name.clone(),
+                part: "尚未获取分 P 信息".into(),
+                favorite_time: video.favtime.to_string(),
+                downloaded: false,
+                metadata_path: Some(video.path.clone()),
+                storage_path: None,
+                storage: "unknown".into(),
+                quality: None,
+                comparison: None,
+            });
+        }
         for part in parts {
             let receipt = library::load(video.id, part.cid).await?;
             let downloaded = ((part.download_status >> 3) & 7) == 7;

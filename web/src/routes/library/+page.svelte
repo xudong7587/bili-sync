@@ -109,7 +109,7 @@
 	<header class="flex flex-wrap items-end justify-between gap-4">
 		<div>
 			<p class="text-primary mb-2 text-xs font-semibold tracking-widest">LIBRARY</p>
-			<h1 class="text-2xl font-semibold tracking-tight">每一份收藏，都有去处</h1>
+			<h1 class="text-2xl font-semibold tracking-tight">媒体库</h1>
 			<p class="text-muted-foreground mt-2 text-sm">
 				先查看本地记录，按需核对 B 站画质。共 {total} 个视频。
 			</p>
@@ -157,8 +157,13 @@
 			variant="outline"
 			disabled={!selected.length || busy || job?.running}
 			onclick={() => run('check')}>对比 B 站画质</Button
-		><Button disabled={!selected.length || busy || job?.running} onclick={() => run('upgrade')}
-			>升级所选画质</Button
+		><Button
+			disabled={!selected.some((id) =>
+				rows.some((row) => row.id === id && row.comparison?.upgradeable)
+			) ||
+				busy ||
+				job?.running}
+			onclick={() => run('upgrade')}>升级所选画质</Button
 		><Button
 			variant="outline"
 			disabled={!selected.length || busy || job?.running}
@@ -244,7 +249,7 @@
 							<details class="mt-2 text-xs">
 								<summary class="cursor-pointer text-muted-foreground">查看路径</summary>
 								<p class="mt-2 break-all">元数据：{row.metadata_path || '待生成'}</p>
-								<p class="mt-1 break-all">视频：{row.storage_path || '旧记录尚无保存位置回执'}</p>
+								<p class="mt-1 break-all">视频：{row.storage_path || '旧记录的保存位置尚未核实'}</p>
 							</details></td
 						><td class="whitespace-nowrap p-4"
 							>{label(row.quality || row.comparison?.current)}{#if row.quality?.bitrate}<p

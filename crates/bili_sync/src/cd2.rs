@@ -182,7 +182,7 @@ impl Cd2Client {
                 .any(|task| task.dest_path == path),
             "视频仍在上传，请稍后核对"
         );
-        Ok(file.size)
+        Ok(file.size.try_into()?)
     }
 
     pub async fn download(&self, path: &str, range: Option<&str>, head: bool) -> Result<reqwest::Response> {

@@ -125,3 +125,54 @@ pub async fn probe(path: &Path, mut quality: SavedQuality) -> Result<SavedQualit
         .and_then(|v| v.parse().ok());
     Ok(quality)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn strm_targets_one_file_with_stable_authorization() {
+        let dir = std::env::temp_dir().join(format!("bili-strm-test-{}", uuid::Uuid::new_v4()));
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        let receipt = FileReceipt {
+            video_id: 12,
+            cid: 34,
+            metadata_path: dir.join("中文视频.mp4"),
+            storage_path: "/115/视频.mp4".into(),
+            cloud: true,
+            bytes: 100,
+            quality: SavedQuality::default(),
+            uploaded_at: String::new(),
+            playback_token: "file-specific-token".into(),
+        };
+        let config = Config {
+            strm_base_url: "https://bili.example.com".into(),
+            ..Default::default()
+        };
+        write_strm(&receipt, &config).await.unwrap();
+        write_strm(&receipt, &config).await.unwrap();
+        let path = receipt.metadata_path.with_extension("strm");
+        assert_eq!(
+            tokio::fs::read_to_string(&path).await.unwrap(),
+            "https://bili.example.com/stream/12/34/file-specific-token\n"
+        );
+        assert!(!receipt.metadata_path.exists());
+        tokio::fs::remove_file(path).await.unwrap();
+        tokio::fs::remove_dir(dir).await.unwrap();
+    }
+    #[test]
+    fn rejects_credentials_and_expiring_query_urls() {
+        for value in [
+            "file:///media",
+            "https://user:password@example.com",
+            "https://example.com?token=secret",
+        ] {
+            assert!(
+                validate(&Config {
+                    strm_base_url: value.into(),
+                    ..Default::default()
+                })
+                .is_err()
+            );
+        }
+    }
+}

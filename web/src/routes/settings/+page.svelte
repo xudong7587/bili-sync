@@ -857,7 +857,8 @@
 						<div>
 							<h3 class="text-lg font-semibold">MediaIndex 入库通知</h3>
 							<p class="text-muted-foreground text-sm">
-								视频下载完成后通知 MediaIndex 扫描预先指定的目录。地址和令牌均留空可关闭通知。
+								视频下载完成后通知 MediaIndex 扫描预先指定的目录。启用本服务 STRM
+								后不再发送此扫描通知；原配置保留。
 							</p>
 						</div>
 						<div class="space-y-2">

@@ -94,7 +94,7 @@ fn verified(old: &SavedQuality, new: &SavedQuality) -> bool {
     let duration_ok = old
         .duration
         .zip(new.duration)
-        .is_some_and(|(o, n)| o > 0.0 && (o - n).abs() <= (o * 0.02).max(2.0));
+        .is_some_and(|(o, n)| o > 0.0 && (o - n).abs() <= (o * 0.01).max(3.0));
     duration_ok && improves(old, new)
 }
 
@@ -124,6 +124,11 @@ pub async fn start(db: sea_orm::DatabaseConnection, client: Arc<BiliClient>, mut
         let config = VersionedConfig::get().snapshot();
         for id in request.page_ids {
             let result = process(&db, &client, &config, id, &request.action).await;
+            let risk_control = result
+                .as_ref()
+                .err()
+                .and_then(|error| error.downcast_ref::<crate::bilibili::BiliError>())
+                .is_some_and(|error| error.is_risk_control_related());
             {
                 let mut job = JOB.lock();
                 job.completed += 1;
@@ -133,6 +138,9 @@ pub async fn start(db: sea_orm::DatabaseConnection, client: Arc<BiliClient>, mut
                     message: result.unwrap_or_else(|e| format!("{e:#}")),
                 });
             }
+            if risk_control {
+                break;
+            }
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         }
         JOB.lock().running = false;
@@ -141,7 +149,17 @@ pub async fn start(db: sea_orm::DatabaseConnection, client: Arc<BiliClient>, mut
 }
 
 async fn baseline(video: &video::Model, page: &page::Model, config: &Config) -> Result<FileReceipt> {
-    if let Some(receipt) = library::load(video.id, page.cid).await? {
+    if let Some(mut receipt) = library::load(video.id, page.cid).await? {
+        if receipt.quality.width.is_none() || receipt.quality.duration.is_none() {
+            let target = if receipt.cloud {
+                let cd2 = crate::cd2::Cd2Client::configured(config)?.context("CD2 未配置")?;
+                cd2.download_url(&receipt.storage_path).await?.to_string()
+            } else {
+                receipt.storage_path.clone()
+            };
+            receipt.quality = library::probe(Path::new(&target), receipt.quality.clone()).await?;
+            library::save(&receipt).await?;
+        }
         return Ok(receipt);
     }
     let metadata = PathBuf::from(page.path.as_ref().context("尚未保存视频路径")?);

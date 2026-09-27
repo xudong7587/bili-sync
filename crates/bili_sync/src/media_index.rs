@@ -19,6 +19,10 @@ struct Webhook {
 
 impl Webhook {
     fn from_config(config: &Config) -> Result<Option<Self>> {
+        // Native per-file STRM generation replaces the legacy directory-scan notification.
+        if !config.strm_base_url.trim().is_empty() {
+            return Ok(None);
+        }
         let url = config.media_index_webhook_url.trim();
         let token = config.media_index_webhook_token.trim();
         if url.is_empty() && token.is_empty() {

@@ -58,7 +58,7 @@ impl StorageLayout {
     }
 
     pub fn video_path_for_mode(metadata_path: &Path, mode: crate::config::StorageMode) -> Result<PathBuf> {
-        if mode == crate::config::StorageMode::Local {
+        if mode != crate::config::StorageMode::Auto {
             return Ok(metadata_path.to_path_buf());
         }
         match Self::from_env()? {
@@ -93,12 +93,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn explicit_local_mode_preserves_subscription_path() {
+    fn explicit_storage_modes_do_not_require_legacy_video_mount() {
         let metadata = Path::new("/media/收藏夹/视频.mp4");
-        assert_eq!(
-            StorageLayout::video_path_for_mode(metadata, crate::config::StorageMode::Local).unwrap(),
-            metadata
-        );
+        for mode in [crate::config::StorageMode::Local, crate::config::StorageMode::Cloud] {
+            assert_eq!(StorageLayout::video_path_for_mode(metadata, mode).unwrap(), metadata);
+        }
     }
 
     #[test]

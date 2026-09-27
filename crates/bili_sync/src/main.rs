@@ -116,7 +116,7 @@ async fn init() -> Result<(Arc<BiliClient>, DatabaseConnection, LogHelper)> {
         .context("数据库初始化失败")?;
     info!("数据库初始化完成");
     VersionedConfig::init(&connection).await.context("配置初始化失败")?;
-    if VersionedConfig::get().read().storage_mode != config::StorageMode::Local {
+    if VersionedConfig::get().read().storage_mode == config::StorageMode::Auto {
         storage::StorageLayout::from_env().context("媒体与元数据目录配置无效")?;
     }
     info!("配置初始化完成");

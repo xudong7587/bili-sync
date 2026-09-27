@@ -171,7 +171,7 @@
 						>
 					</div>
 				</div>
-				<ul class="max-h-40 min-w-0 flex-1 space-y-2 overflow-auto">
+				<ul class="max-h-40 min-w-40 flex-1 space-y-2 overflow-auto">
 					{#each folders as folder, i (folder.name)}<li class="flex items-center gap-2 text-xs">
 							<span
 								class="size-2 shrink-0 rounded-full"

@@ -21,12 +21,15 @@
 	let busy = false;
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let disposed = false;
+	let loadSequence = 0;
 	$: visible = rows.filter(
 		(row) =>
 			(storage === 'all' || row.storage === storage) &&
 			(download === 'all' || row.downloaded === (download === 'yes')) &&
 			(!upgradeOnly || row.comparison?.upgradeable)
 	);
+	$: selected = selected.filter((id) => visible.some((row) => row.id === id));
+
 	const label = (q: SavedQuality | null | undefined) =>
 		q?.height && q?.width
 			? `${q.width} × ${q.height}${q.codec ? ` · ${q.codec.toUpperCase()}` : ''}`
@@ -34,6 +37,8 @@
 				? `QN ${q.qn}`
 				: '尚无画质记录';
 	async function load() {
+		const sequence = ++loadSequence;
+		selected = [];
 		loading = true;
 		try {
 			const result = await api.libraryVideos({
@@ -44,13 +49,15 @@
 				submission: $page.url.searchParams.get('submission'),
 				collection: $page.url.searchParams.get('collection')
 			});
+			if (disposed || sequence !== loadSequence) return;
 			rows = result.data.rows;
 			total = result.data.total;
 			selected = [];
 		} catch (e) {
+			if (disposed || sequence !== loadSequence) return;
 			toast.error('加载失败', { description: (e as ApiError).message });
 		} finally {
-			loading = false;
+			if (sequence === loadSequence) loading = false;
 		}
 	}
 	function select(id: number, checked: boolean) {
@@ -77,14 +84,15 @@
 		}
 	}
 	async function run(action: string) {
+		if (loading) return;
 		busy = true;
 		try {
 			await api.libraryStart(
 				action === 'upgrade'
 					? selected.filter((id) =>
-							rows.some((row) => row.id === id && row.comparison?.upgradeable)
+							visible.some((row) => row.id === id && row.comparison?.upgradeable)
 						)
-					: selected,
+					: selected.filter((id) => visible.some((row) => row.id === id && row.downloaded)),
 				action
 			);
 			await poll();
@@ -155,18 +163,19 @@
 	<div class="flex flex-wrap items-center gap-2">
 		<span class="mr-2 text-sm">已选 {selected.length} / 25</span><Button
 			variant="outline"
-			disabled={!selected.length || busy || job?.running}
+			disabled={loading || !selected.length || busy || job?.running}
 			onclick={() => run('check')}>对比 B 站画质</Button
 		><Button
-			disabled={!selected.some((id) =>
-				rows.some((row) => row.id === id && row.comparison?.upgradeable)
-			) ||
+			disabled={loading ||
+				!selected.some((id) =>
+					visible.some((row) => row.id === id && row.comparison?.upgradeable)
+				) ||
 				busy ||
 				job?.running}
 			onclick={() => run('upgrade')}>升级所选画质</Button
 		><Button
 			variant="outline"
-			disabled={!selected.length || busy || job?.running}
+			disabled={loading || !selected.length || busy || job?.running}
 			onclick={() => run('strm')}>补写 STRM</Button
 		>
 		<p class="text-muted-foreground text-xs">
@@ -200,6 +209,7 @@
 					><th class="p-4"
 						><Checkbox
 							aria-label="选择当前页前 25 个已完成分 P"
+							disabled={loading}
 							checked={selected.length > 0 &&
 								visible
 									.filter((r) => r.downloaded)
@@ -225,7 +235,7 @@
 							><Checkbox
 								aria-label={`选择 ${row.title}`}
 								checked={selected.includes(row.id)}
-								disabled={!row.downloaded}
+								disabled={loading || !row.downloaded}
 								onCheckedChange={(checked) => select(row.id, checked)}
 							/></td
 						><td class="max-w-80 p-4"

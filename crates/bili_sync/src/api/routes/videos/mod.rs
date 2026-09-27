@@ -217,6 +217,7 @@ pub async fn clear_and_reset_video_status(
     Path(id): Path<i32>,
     Extension(db): Extension<DatabaseConnection>,
 ) -> Result<ApiResponse<ClearAndResetVideoStatusResponse>, ApiError> {
+    let _guard = crate::task::DownloadTaskManager::get().try_library_lock()?;
     let video_info = video::Entity::find_by_id(id).one(&db).await?;
     let Some(video_info) = video_info else {
         return Err(InnerApiError::NotFound(id).into());
@@ -233,6 +234,9 @@ pub async fn clear_and_reset_video_status(
         .await?;
     txn.commit().await?;
     let video_info = video_info.try_into_model()?;
+    crate::library::invalidate_video(id)
+        .await
+        .context("清空重置的保存记录失效失败，请重试")?;
     let warning = if video_info.path.is_empty() {
         None
     } else {

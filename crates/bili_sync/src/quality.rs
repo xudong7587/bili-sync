@@ -122,6 +122,28 @@ pub async fn start(db: sea_orm::DatabaseConnection, client: Arc<BiliClient>, mut
     tokio::spawn(async move {
         let _guard = guard;
         let config = VersionedConfig::get().snapshot();
+        if request.action != "strm" {
+            let setup = async {
+                let key = client
+                    .wbi_img(&config.credential)
+                    .await?
+                    .into_mixin_key()
+                    .context("无法获取 WBI 签名")?;
+                crate::bilibili::set_global_mixin_key(key);
+                Result::<()>::Ok(())
+            }
+            .await;
+            if let Err(error) = setup {
+                let mut job = JOB.lock();
+                job.running = false;
+                job.results.push(JobResult {
+                    page_id: request.page_ids[0],
+                    success: false,
+                    message: format!("画质检查初始化失败：{error:#}"),
+                });
+                return;
+            }
+        }
         for id in request.page_ids {
             let result = process(&db, &client, &config, id, &request.action).await;
             let risk_control = result
@@ -320,15 +342,14 @@ async fn process(
         new.quality = actual;
         new.bytes = tokio::fs::metadata(temporary.file_path()).await?.len();
         new.uploaded_at = chrono::Utc::now().to_rfc3339();
-        // Keep the old receipt and file for rollback, including cloud versions.
-        let backup_receipt = CONFIG_DIR.join("library").join(format!(
-            "{}-{}-backup-{}.json",
-            video.id,
-            page.cid,
-            uuid::Uuid::new_v4()
-        ));
-        library::atomic_write(&backup_receipt, &serde_json::to_vec(&old)?).await?;
         if old.cloud {
+            let backup_receipt = CONFIG_DIR.join("library").join(format!(
+                "{}-{}-backup-{}.json",
+                video.id,
+                page.cid,
+                uuid::Uuid::new_v4()
+            ));
+            library::atomic_write(&backup_receipt, &serde_json::to_vec(&old)?).await?;
             ensure!(!config.strm_base_url.is_empty(), "云端升级需要先配置本服务 STRM 地址");
             let cd2 = crate::cd2::Cd2Client::connection(config)?.context("CD2 未配置")?;
             let version_path = old.metadata_path.with_file_name(format!(
@@ -344,20 +365,7 @@ async fn process(
             library::write_strm(&old, config).await?;
             library::save(&new).await?;
         } else {
-            let target = Path::new(&old.storage_path);
-            let staged = target.with_extension(format!("{}.new", uuid::Uuid::new_v4()));
-            let backup = target.with_extension(format!("{}.mp4.backup", uuid::Uuid::new_v4()));
-            tokio::fs::copy(temporary.file_path(), &staged).await?;
-            tokio::fs::rename(target, &backup).await?;
-            if let Err(error) = tokio::fs::rename(&staged, target).await {
-                tokio::fs::rename(&backup, target).await?;
-                return Err(error.into());
-            }
-            if let Err(error) = library::save(&new).await {
-                let _ = tokio::fs::rename(target, &staged).await;
-                tokio::fs::rename(&backup, target).await?;
-                return Err(error);
-            }
+            library::local_replace::replace(temporary.file_path(), &old, &new).await?;
         }
         comparison.current = new.quality;
         comparison.upgradeable = false;

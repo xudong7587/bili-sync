@@ -18,7 +18,7 @@
 		UpdateFilteredVideoStatusRequest,
 		VideoInfo
 	} from '$lib/types';
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { VIDEO_SOURCES } from '$lib/consts';
@@ -93,6 +93,10 @@
 
 	let videosData: VideosResponse | null = null;
 	let loading = false;
+	let loadSequence = 0;
+	onDestroy(() => {
+		loadSequence++;
+	});
 
 	let lastSearch: string | null = null;
 
@@ -152,6 +156,7 @@
 		createdFrom: string | null = null,
 		createdTo: string | null = null
 	) {
+		const sequence = ++loadSequence;
 		loading = true;
 		try {
 			const params: Record<string, string | number | boolean> = {
@@ -178,14 +183,16 @@
 				params.created_to = createdTo;
 			}
 			const result = await api.getVideos(params);
+			if (sequence !== loadSequence) return;
 			videosData = result.data;
 		} catch (error) {
+			if (sequence !== loadSequence) return;
 			console.error('加载视频失败：', error);
 			toast.error('加载视频失败', {
 				description: (error as ApiError).message
 			});
 		} finally {
-			loading = false;
+			if (sequence === loadSequence) loading = false;
 		}
 	}
 

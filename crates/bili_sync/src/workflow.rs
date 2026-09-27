@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 use bili_sync_entity::upper_vec::Upper;
 use bili_sync_entity::*;
 use futures::stream::{self, FuturesUnordered};
@@ -829,6 +829,10 @@ pub async fn fetch_page_video(
         && receipt.metadata_path == metadata_path
         && receipt.storage_path == cd2.remote_path(&metadata_path)?
     {
+        ensure!(
+            cd2.existing_size(&receipt.storage_path).await? == receipt.bytes,
+            "云端视频与保存记录不一致，请清空重置该视频后重试"
+        );
         return Ok(ExecutionStatus::Succeeded);
     }
     let bili_video = Video::new(cx.bili_client, video_model.bvid.as_str(), &cx.config.credential);

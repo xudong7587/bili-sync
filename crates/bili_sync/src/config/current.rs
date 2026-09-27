@@ -52,6 +52,8 @@ pub struct Config {
     #[serde(default)]
     pub ignore_common_errors: bool,
     #[serde(default)]
+    pub media_index_webhook_enabled: bool,
+    #[serde(default)]
     pub media_index_webhook_url: String,
     #[serde(default)]
     pub media_index_webhook_token: String,
@@ -162,6 +164,7 @@ impl Default for Config {
             page_name: "{{bvid}}".to_owned(),
             notifiers: None,
             ignore_common_errors: false,
+            media_index_webhook_enabled: false,
             media_index_webhook_url: String::new(),
             media_index_webhook_token: String::new(),
             storage_mode: StorageMode::Auto,

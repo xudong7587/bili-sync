@@ -1,4 +1,6 @@
 //! Durable per-file receipts. Upload acknowledgement is persisted before STRM generation.
+pub mod local_replace;
+
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, ensure};
@@ -54,6 +56,7 @@ pub async fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
         let file = tokio::fs::OpenOptions::new().write(true).open(&temporary).await?;
         file.sync_all().await?;
         tokio::fs::rename(&temporary, path).await?;
+        sync_parent(path).await?;
         Result::<()>::Ok(())
     }
     .await;
@@ -62,6 +65,43 @@ pub async fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     }
     result
 }
+/// Flush the directory entry as well as file content on the NAS.
+pub async fn sync_parent(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    tokio::fs::File::open(path.parent().context("missing parent")?)
+        .await?
+        .sync_all()
+        .await?;
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
+}
+
+pub async fn invalidate_video(video_id: i32) -> Result<()> {
+    invalidate_video_at(&CONFIG_DIR.join("library"), video_id).await
+}
+async fn invalidate_video_at(directory: &Path, video_id: i32) -> Result<()> {
+    let mut entries = match tokio::fs::read_dir(directory).await {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    let prefix = format!("{video_id}-");
+    while let Some(entry) = entries.next_entry().await? {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some(cid) = name.strip_prefix(&prefix).and_then(|s| s.strip_suffix(".json")) else {
+            continue;
+        };
+        if cid.parse::<i64>().is_err() {
+            continue;
+        }
+        let backup = directory.join(format!("{video_id}-{cid}-reset-backup-{}.json", uuid::Uuid::new_v4()));
+        tokio::fs::rename(entry.path(), &backup).await?;
+        sync_parent(&backup).await?;
+    }
+    Ok(())
+}
+
 pub fn validate(config: &Config) -> Result<()> {
     if config.strm_base_url.is_empty() {
         return Ok(());
@@ -161,6 +201,28 @@ mod tests {
         assert!(!receipt.metadata_path.exists());
         tokio::fs::remove_file(path).await.unwrap();
         tokio::fs::remove_dir(dir).await.unwrap();
+    }
+    #[tokio::test]
+    async fn reset_invalidates_only_active_receipts_for_the_selected_video() {
+        let dir = std::env::temp_dir().join(format!("bili-reset-{}", uuid::Uuid::new_v4()));
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        for name in ["12-34.json", "12-35.json", "13-34.json", "12-34-backup-old.json"] {
+            tokio::fs::write(dir.join(name), b"receipt").await.unwrap();
+        }
+        invalidate_video_at(&dir, 12).await.unwrap();
+        assert!(!dir.join("12-34.json").exists());
+        assert!(!dir.join("12-35.json").exists());
+        assert!(dir.join("13-34.json").exists());
+        assert!(dir.join("12-34-backup-old.json").exists());
+        invalidate_video_at(&dir, 12).await.unwrap();
+        let mut entries = tokio::fs::read_dir(&dir).await.unwrap();
+        let mut count = 0;
+        while let Some(entry) = entries.next_entry().await.unwrap() {
+            assert_eq!(tokio::fs::read(entry.path()).await.unwrap(), b"receipt");
+            count += 1;
+        }
+        assert_eq!(count, 4);
+        tokio::fs::remove_dir_all(dir).await.unwrap();
     }
     #[test]
     fn rejects_credentials_and_expiring_query_urls() {

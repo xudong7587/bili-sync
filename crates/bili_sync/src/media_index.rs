@@ -20,7 +20,7 @@ struct Webhook {
 impl Webhook {
     fn from_config(config: &Config) -> Result<Option<Self>> {
         // Native per-file STRM generation replaces the legacy directory-scan notification.
-        if !config.strm_base_url.trim().is_empty() {
+        if !config.media_index_webhook_enabled || !config.strm_base_url.trim().is_empty() {
             return Ok(None);
         }
         let url = config.media_index_webhook_url.trim();
@@ -93,6 +93,7 @@ mod tests {
     fn old_config_without_webhook_fields_stays_disabled() {
         let mut saved = serde_json::to_value(Config::default()).unwrap();
         let fields = saved.as_object_mut().unwrap();
+        fields.remove("media_index_webhook_enabled");
         fields.remove("media_index_webhook_url");
         fields.remove("media_index_webhook_token");
         let loaded: Config = serde_json::from_value(saved).unwrap();
@@ -100,8 +101,19 @@ mod tests {
     }
 
     #[test]
+    fn retained_legacy_credentials_do_not_enable_hidden_notifications() {
+        let mut fields = serde_json::to_value(Config::default()).unwrap();
+        fields.as_object_mut().unwrap().remove("media_index_webhook_enabled");
+        fields["media_index_webhook_url"] = "https://unused.example.com/notify".into();
+        fields["media_index_webhook_token"] = "old-secret".into();
+        let loaded: Config = serde_json::from_value(fields).unwrap();
+        assert!(Webhook::from_config(&loaded).unwrap().is_none());
+    }
+
+    #[test]
     fn webhook_requires_both_valid_fields() {
         let mut config = Config {
+            media_index_webhook_enabled: true,
             media_index_webhook_url: "https://media.example.com/api/webhooks/in/test".into(),
             ..Config::default()
         };

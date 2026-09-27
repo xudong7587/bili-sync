@@ -255,6 +255,7 @@ pub async fn check_account() -> Result<()> {
     .await?;
     Ok(())
 }
+#[allow(dead_code)] // Reserved for the optional native 115 playback channel.
 pub async fn download(file_id: &str, range: Option<&str>, head: bool) -> Result<reqwest::Response> {
     ensure!(
         !file_id.is_empty() && file_id.bytes().all(|b| b.is_ascii_digit()),

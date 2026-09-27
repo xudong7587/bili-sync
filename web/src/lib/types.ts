@@ -372,6 +372,7 @@ export interface Config {
 	page_name: string;
 	notifiers: Notifier[] | null;
 	ignore_common_errors: boolean;
+	media_index_webhook_enabled?: boolean;
 	media_index_webhook_url: string;
 	media_index_webhook_token: string;
 	storage_mode?: 'auto' | 'local' | 'cloud';

@@ -284,7 +284,8 @@ impl DownloadTaskManager {
                     let Ok(_pending) = cx.scheduled_wait.try_lock() else {
                         return;
                     };
-                    let config = VersionedConfig::get().snapshot();
+                    let mut changes = VersionedConfig::get().subscribe();
+                    let config = changes.borrow_and_update().clone();
                     let next_tick = l
                         .next_tick_for_job(uuid)
                         .await
@@ -300,7 +301,9 @@ impl DownloadTaskManager {
                         cx.status_tx.send_modify(|status| {
                             status.next_run = Some(chrono::Local::now() + chrono::Duration::seconds(delay as i64))
                         });
-                        tokio::time::sleep(Duration::from_secs(delay)).await;
+                        if !wait_refresh_delay(Duration::from_secs(delay), &mut changes).await {
+                            return;
+                        }
                     }
                     // A settings change cancels the old timer; re-check the time after jitter.
                     if *cx.video_task_id.lock().await != Some(uuid) {
@@ -421,4 +424,31 @@ async fn download_video(
         }
     }
     Ok(())
+}
+
+// Return false immediately when configuration changes; release the pending timer lock.
+async fn wait_refresh_delay(delay: Duration, changes: &mut watch::Receiver<Arc<Config>>) -> bool {
+    tokio::select! {
+        biased;
+        _ = changes.changed() => false,
+        _ = tokio::time::sleep(delay) => true,
+    }
+}
+
+#[cfg(test)]
+mod schedule_tests {
+    use super::*;
+    #[tokio::test]
+    async fn configuration_change_interrupts_a_day_long_jitter() {
+        let (sender, mut receiver) = watch::channel(Arc::new(Config::default()));
+        receiver.borrow_and_update();
+        sender.send(Arc::new(Config::default())).unwrap();
+        let result = tokio::time::timeout(
+            Duration::from_secs(1),
+            wait_refresh_delay(Duration::from_secs(86400), &mut receiver),
+        )
+        .await
+        .unwrap();
+        assert!(!result);
+    }
 }

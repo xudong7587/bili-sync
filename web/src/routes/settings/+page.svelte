@@ -20,7 +20,6 @@
 	import InfoIcon from '@lucide/svelte/icons/info';
 	import QrCodeIcon from '@lucide/svelte/icons/qr-code';
 	import api from '$lib/api';
-	import CloudAccount from '$lib/components/cloud-account.svelte';
 	import Cd2Connection from '$lib/components/cd2-connection.svelte';
 	import { toast } from 'svelte-sonner';
 	import { setBreadcrumb } from '$lib/stores/breadcrumb';
@@ -1005,13 +1004,13 @@
 						</p>
 					</div>
 					{#if formData.storage_mode !== 'local'}
-						<CloudAccount />
+						<!-- Independent 115 login is reserved for a future optional playback channel. -->
 						<div class="space-y-4">
 							<div>
 								<h3 class="text-lg font-semibold">CloudDrive2 直传 115</h3>
 								<p class="text-muted-foreground text-sm">
-									填写三项后，新视频先下载到容器临时目录，再经 CD2 上传到
-									115。确认云端上传完成后生成 STRM；NFO 和图片仍保存在
+									填写三项后，新视频先下载到容器临时目录，再经 CD2 上传到 115。使用 CD2 已登录的 115
+									账号，无需再次扫码。确认云端上传完成后生成 STRM；NFO 和图片仍保存在
 									/media。网盘分流模式需填写完整。
 								</p>
 							</div>

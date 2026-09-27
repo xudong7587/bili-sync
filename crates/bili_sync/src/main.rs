@@ -119,6 +119,9 @@ async fn init() -> Result<(Arc<BiliClient>, DatabaseConnection, LogHelper)> {
     if VersionedConfig::get().read().storage_mode == config::StorageMode::Auto {
         storage::StorageLayout::from_env().context("媒体与元数据目录配置无效")?;
     }
+    library::local_replace::recover()
+        .await
+        .context("恢复中断的本地升级失败")?;
     info!("配置初始化完成");
 
     Ok((Arc::new(BiliClient::new()), connection, log_writer))

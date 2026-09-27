@@ -1,4 +1,5 @@
 <script lang="ts">
+	import VideoTable from '$lib/components/video-table.svelte';
 	import VideoCard from '$lib/components/video-card.svelte';
 	import Pagination from '$lib/components/pagination.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
@@ -48,6 +49,28 @@
 	export let embedded = false;
 	let presentation: 'card' | 'banner' | 'list' = 'card';
 	let sort = 'newest';
+	let resettingSelected = false;
+	async function resetSelected(ids: number[]) {
+		resettingSelected = true;
+		let failed = 0;
+		for (const id of ids) {
+			try {
+				await api.resetVideoStatus(id, { force: false });
+			} catch {
+				failed++;
+			}
+		}
+		resettingSelected = false;
+		if (failed) toast.error(`${failed} 个视频重试请求失败`);
+		else toast.success('所选失败任务已重置');
+		await reloadVideos();
+	}
+	function changeSort(value: string) {
+		sort = value;
+		resetCurrentPage();
+		navigate();
+	}
+
 	const pageSize = 20;
 	function navigate() {
 		const query = ToQuery($appStateStore).replace(/^videos/, '');
@@ -439,7 +462,10 @@
 				navigate();
 			}}
 			><option value="newest">最近收藏</option><option value="oldest">最早收藏</option><option
-				value="title">标题排序</option
+				value="title">标题升序</option
+			><option value="title_desc">标题降序</option><option value="added_desc">最近入库</option
+			><option value="added_asc">最早入库</option><option value="upper">UP 主升序</option><option
+				value="upper_desc">UP 主降序</option
 			></select
 		>
 	</div>
@@ -595,28 +621,36 @@
 		<div class="text-muted-foreground/70 text-sm">加载中...</div>
 	</div>
 {:else if videosData?.videos.length}
-	<div
-		class={presentation === 'list'
-			? 'mb-8 grid gap-2'
-			: presentation === 'banner'
+	{#if presentation === 'list'}
+		<VideoTable
+			videos={videosData.videos}
+			{sort}
+			onSort={changeSort}
+			source={getVideoSource}
+			onResetSelected={resetSelected}
+			busy={resettingSelected}
+		/>
+	{:else}
+		<div
+			class={presentation === 'banner'
 				? 'mb-8 grid gap-4 lg:grid-cols-2'
 				: 'mb-8 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'}
-	>
-		{#each videosData.videos as video (video.id)}
-			<VideoCard
-				{presentation}
-				{video}
-				source={getVideoSource(video)}
-				onReset={async (forceReset: boolean) => {
-					await handleResetVideo(video.id, forceReset);
-				}}
-				onClearAndReset={async () => {
-					await handleClearAndResetVideo(video.id);
-				}}
-			/>
-		{/each}
-	</div>
-
+		>
+			{#each videosData.videos as video (video.id)}
+				<VideoCard
+					{presentation}
+					{video}
+					source={getVideoSource(video)}
+					onReset={async (forceReset: boolean) => {
+						await handleResetVideo(video.id, forceReset);
+					}}
+					onClearAndReset={async () => {
+						await handleClearAndResetVideo(video.id);
+					}}
+				/>
+			{/each}
+		</div>
+	{/if}
 	<!-- 翻页组件 -->
 	<Pagination
 		currentPage={$appStateStore.currentPage}

@@ -25,6 +25,7 @@
 	let authorized = $state(false);
 	let error = $state('');
 	let busy = $state(false);
+	let verified = $state(false);
 	let login = $state(false);
 	let image = $state('');
 	let status = $state('');
@@ -43,8 +44,10 @@
 		try {
 			await api.cloudAccountCheck();
 			authorized = true;
+			verified = true;
 			status = '115 授权有效';
 		} catch (e) {
+			verified = false;
 			error = (e as ApiError).message;
 		} finally {
 			busy = false;
@@ -90,7 +93,7 @@
 		<h3 class="font-semibold">115 账号</h3>
 		<span class="text-muted-foreground text-sm"
 			>{authorized
-				? `已登录 · ${channels.find((c) => c[0] === savedChannel)?.[1] || '115'}`
+				? `${verified ? '连接正常' : '已保存登录'} · ${channels.find((c) => c[0] === savedChannel)?.[1] || '115'}`
 				: '未登录'}</span
 		>
 	</div>
@@ -115,7 +118,7 @@
 	<div class="flex flex-wrap gap-2">
 		<Button disabled={login} onclick={start}>{login ? '等待扫码确认…' : '115 扫码登录'}</Button
 		><Button variant="outline" disabled={busy || !authorized} onclick={check}
-			>{busy ? '检查中…' : '检查 115 授权'}</Button
+			>{busy ? '检查中…' : '测试 115 连接'}</Button
 		>
 	</div>
 	{#if channel === 'open'}<details open class="text-sm">

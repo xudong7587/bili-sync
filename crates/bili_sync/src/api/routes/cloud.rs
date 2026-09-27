@@ -27,13 +27,27 @@ struct LoginRequest {
 }
 pub fn router() -> Router {
     Router::new()
-        .route("/cloud/space", get(space))
+        .route("/cloud/space", get(space).post(test_connection))
         .route("/cloud/login", post(start_login).get(login_state))
         .route("/cloud/account/check", post(check_account))
 }
 async fn space() -> Result<ApiResponse<SpaceInfo>, ApiError> {
-    let cd2 = Cd2Client::configured(&VersionedConfig::get().read())?
+    let cd2 = Cd2Client::connection(&VersionedConfig::get().read())?
         .ok_or_else(|| anyhow::anyhow!("请先保存 CD2 地址、令牌和目录"))?;
+    Ok(ApiResponse::ok(cd2.space().await?))
+}
+#[derive(Deserialize)]
+struct ConnectionRequest {
+    url: String,
+    token: String,
+    path: String,
+}
+async fn test_connection(Json(request): Json<ConnectionRequest>) -> Result<ApiResponse<SpaceInfo>, ApiError> {
+    let mut config = VersionedConfig::get().snapshot().as_ref().clone();
+    config.cd2_url = request.url;
+    config.cd2_token = request.token;
+    config.cd2_save_path = request.path;
+    let cd2 = Cd2Client::connection(&config)?.ok_or_else(|| anyhow::anyhow!("请填写 CD2 地址、令牌和目录"))?;
     Ok(ApiResponse::ok(cd2.space().await?))
 }
 async fn check_account() -> Result<ApiResponse<bool>, ApiError> {

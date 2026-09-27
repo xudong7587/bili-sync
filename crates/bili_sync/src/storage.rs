@@ -54,6 +54,9 @@ impl StorageLayout {
     }
 
     pub fn video_path_for(metadata_path: &Path) -> Result<PathBuf> {
+        if crate::config::VersionedConfig::get().read().storage_mode == crate::config::StorageMode::Local {
+            return Ok(metadata_path.to_path_buf());
+        }
         match Self::from_env()? {
             Some(layout) => layout.video_path(metadata_path),
             None => Ok(metadata_path.to_path_buf()),

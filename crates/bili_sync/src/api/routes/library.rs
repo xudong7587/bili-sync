@@ -22,15 +22,15 @@ async fn play(Path((video_id, cid, token)): Path<(i32, i64, String)>, headers: H
         return StatusCode::NOT_FOUND.into_response();
     }
     let config = VersionedConfig::get().snapshot();
-    let Ok(Some(cd2)) = Cd2Client::configured(&config) else {
+    let Ok(Some(cd2)) = Cd2Client::connection(&config) else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
     let range = headers.get("range").and_then(|v| v.to_str().ok());
     let result = if crate::p115::authorized().await {
-        if receipt.cloud_file_id.is_none() {
-            if let Ok(id) = cd2.file_id(&receipt.storage_path).await {
-                receipt.cloud_file_id = Some(id);
-            }
+        if receipt.cloud_file_id.is_none()
+            && let Ok(id) = cd2.file_id(&receipt.storage_path).await
+        {
+            receipt.cloud_file_id = Some(id);
         }
         match receipt.cloud_file_id.as_deref() {
             Some(id) => crate::p115::download(id, range, method == Method::HEAD).await,

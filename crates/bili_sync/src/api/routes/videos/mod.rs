@@ -100,6 +100,21 @@ pub async fn get_videos(
         (0, 10)
     };
     query = match params.sort.as_deref() {
+        Some("added_desc") => query
+            .order_by_desc(video::Column::CreatedAt)
+            .order_by_desc(video::Column::Id),
+        Some("added_asc") => query
+            .order_by_asc(video::Column::CreatedAt)
+            .order_by_asc(video::Column::Id),
+        Some("title_desc") => query
+            .order_by_desc(video::Column::Name)
+            .order_by_desc(video::Column::Id),
+        Some("upper") => query
+            .order_by_asc(video::Column::UpperName)
+            .order_by_desc(video::Column::Id),
+        Some("upper_desc") => query
+            .order_by_desc(video::Column::UpperName)
+            .order_by_desc(video::Column::Id),
         Some("title") => query.order_by_asc(video::Column::Name).order_by_desc(video::Column::Id),
         Some("oldest") => query
             .order_by_asc(video::Column::Favtime)
@@ -230,6 +245,8 @@ pub async fn clear_and_reset_video_status(
     Ok(ApiResponse::ok(ClearAndResetVideoStatusResponse {
         warning,
         video: VideoInfo {
+            created_at: video_info.created_at.clone(),
+            favtime: video_info.favtime,
             cover: video_info.cover.clone(),
             id: video_info.id,
             bvid: video_info.bvid,

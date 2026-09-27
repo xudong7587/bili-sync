@@ -139,7 +139,7 @@ html {
 
 :root,
 .dark {
-	--brand: #2563eb;
+	--brand: #fb7299;
 	--primary: var(--brand);
 	--primary-foreground: #fff;
 	--sidebar-primary: var(--brand);

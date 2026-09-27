@@ -33,15 +33,20 @@ async fn storage() -> Result<ApiResponse<Vec<Folder>>, ApiError> {
         let Ok(receipt) = serde_json::from_slice::<FileReceipt>(&bytes) else {
             continue;
         };
-        if !receipt.cloud {
-            continue;
-        }
-        let relative = receipt
-            .storage_path
-            .strip_prefix(root.trim_end_matches('/'))
-            .unwrap_or(&receipt.storage_path)
-            .trim_start_matches('/');
-        let name = relative.split('/').next().unwrap_or("根目录").to_string();
+        let metadata_root = std::env::var("BILI_SYNC_METADATA_ROOT").unwrap_or_else(|_| "/media".to_string());
+        let path = std::path::Path::new(if receipt.cloud {
+            &receipt.storage_path
+        } else {
+            &receipt.metadata_path
+        });
+        let base = std::path::Path::new(if receipt.cloud { &root } else { &metadata_root });
+        let relative = path.strip_prefix(base).unwrap_or(path);
+        let folder = relative
+            .components()
+            .next()
+            .map(|part| part.as_os_str().to_string_lossy().into_owned())
+            .unwrap_or_else(|| "根目录".into());
+        let name = format!("{} · {}", if receipt.cloud { "115" } else { "本地" }, folder);
         let group = folders.entry(name.clone()).or_insert_with(|| Folder {
             name,
             ..Default::default()

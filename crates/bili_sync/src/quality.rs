@@ -152,7 +152,7 @@ async fn baseline(video: &video::Model, page: &page::Model, config: &Config) -> 
     if let Some(mut receipt) = library::load(video.id, page.cid).await? {
         if receipt.quality.width.is_none() || receipt.quality.duration.is_none() {
             let target = if receipt.cloud {
-                let cd2 = crate::cd2::Cd2Client::configured(config)?.context("CD2 未配置")?;
+                let cd2 = crate::cd2::Cd2Client::connection(config)?.context("CD2 未配置")?;
                 cd2.download_url(&receipt.storage_path).await?.to_string()
             } else {
                 receipt.storage_path.clone()
@@ -330,7 +330,7 @@ async fn process(
         library::atomic_write(&backup_receipt, &serde_json::to_vec(&old)?).await?;
         if old.cloud {
             ensure!(!config.strm_base_url.is_empty(), "云端升级需要先配置本服务 STRM 地址");
-            let cd2 = crate::cd2::Cd2Client::configured(config)?.context("CD2 未配置")?;
+            let cd2 = crate::cd2::Cd2Client::connection(config)?.context("CD2 未配置")?;
             let version_path = old.metadata_path.with_file_name(format!(
                 "bili-{}-{}-{}.mp4",
                 video.id,

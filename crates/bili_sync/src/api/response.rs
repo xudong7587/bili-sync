@@ -70,6 +70,8 @@ pub struct VideoSource {
 #[derive(Serialize, DerivePartialModel, FromQueryResult)]
 #[sea_orm(entity = "video::Entity")]
 pub struct VideoInfo {
+    pub created_at: String,
+    pub favtime: DateTime,
     pub id: i32,
     pub bvid: String,
     pub name: String,

@@ -7,7 +7,7 @@ mod versioned_cache;
 mod versioned_config;
 
 pub use crate::config::args::{ARGS, version};
-pub use crate::config::current::{CONFIG_DIR, Config};
+pub use crate::config::current::{CONFIG_DIR, Config, StorageMode};
 pub(crate) use crate::config::default::default_bind_address;
 pub use crate::config::handlebar::TEMPLATE;
 pub use crate::config::item::{

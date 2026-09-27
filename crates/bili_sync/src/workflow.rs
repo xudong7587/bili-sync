@@ -815,7 +815,9 @@ pub async fn fetch_page_video(
     if !should_run {
         return Ok(ExecutionStatus::Skipped);
     }
-    let metadata_path = if let Some(layout) = StorageLayout::from_env()? {
+    let metadata_path = if cx.config.storage_mode == crate::config::StorageMode::Local {
+        page_path.to_path_buf()
+    } else if let Some(layout) = StorageLayout::from_env()? {
         layout.metadata_path_for_video(page_path)?
     } else {
         page_path.to_path_buf()

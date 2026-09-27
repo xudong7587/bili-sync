@@ -105,6 +105,7 @@
 			const response = await api.getConfig();
 			config = response.data;
 			formData = { ...config };
+			formData.storage_mode ??= 'auto';
 
 			formData.refresh_schedule ??= {
 				start: '',
@@ -252,43 +253,44 @@
 </svelte:head>
 
 <div class="space-y-6">
-	<!-- 前端认证状态栏 -->
-	<div class="bg-card rounded-lg border p-4">
-		<div class="flex items-center justify-between">
-			<div class="space-y-1">
-				<h2 class="font-semibold">前端认证状态</h2>
-				<p class="text-muted-foreground text-sm">
-					{formData ? '已认证 - 可以正常加载数据' : '未认证 - 请输入 Token 进行鉴权'}
-				</p>
-			</div>
-			{#if !formData}
-				<div class="flex gap-3">
-					<PasswordInput bind:value={frontendToken} placeholder="输入认证Token" />
-					<Button onclick={authenticateFrontend} disabled={!frontendToken.trim()}>认证</Button>
+	{#if section === 'auth'}
+		<!-- 前端认证状态栏 -->
+		<div class="bg-card rounded-lg border p-4">
+			<div class="flex items-center justify-between">
+				<div class="space-y-1">
+					<h2 class="font-semibold">前端认证状态</h2>
+					<p class="text-muted-foreground text-sm">
+						{formData ? '已认证 - 可以正常加载数据' : '未认证 - 请输入 Token 进行鉴权'}
+					</p>
 				</div>
-			{:else}
-				<div class="flex items-center gap-3">
-					<div class="flex items-center gap-2">
-						<div class="h-2 w-2 rounded-full bg-emerald-500"></div>
-						<span class="text-sm text-emerald-600">已认证</span>
+				{#if !formData}
+					<div class="flex gap-3">
+						<PasswordInput bind:value={frontendToken} placeholder="输入认证Token" />
+						<Button onclick={authenticateFrontend} disabled={!frontendToken.trim()}>认证</Button>
 					</div>
-					<Button
-						variant="outline"
-						size="sm"
-						onclick={() => {
-							formData = null;
-							config = null;
-							api.clearAuthToken();
-							frontendToken = '';
-						}}
-					>
-						退出认证
-					</Button>
-				</div>
-			{/if}
+				{:else}
+					<div class="flex items-center gap-3">
+						<div class="flex items-center gap-2">
+							<div class="h-2 w-2 rounded-full bg-emerald-500"></div>
+							<span class="text-sm text-emerald-600">已认证</span>
+						</div>
+						<Button
+							variant="outline"
+							size="sm"
+							onclick={() => {
+								formData = null;
+								config = null;
+								api.clearAuthToken();
+								frontendToken = '';
+							}}
+						>
+							退出认证
+						</Button>
+					</div>
+				{/if}
+			</div>
 		</div>
-	</div>
-
+	{/if}
 	<!-- 应用配置 -->
 	{#if loading}
 		<div class="flex items-center justify-center py-16">
@@ -1015,58 +1017,81 @@
 					</div>
 				</Tabs.Content>
 				<Tabs.Content value="cloud" class="mt-6 space-y-6">
-					<CloudAccount />
-					<div class="space-y-4">
-						<div>
-							<h3 class="text-lg font-semibold">CloudDrive2 直传 115</h3>
-							<p class="text-muted-foreground text-sm">
-								填写三项后，新视频先下载到容器临时目录，再经 CD2 上传到 115。确认云端上传完成后生成
-								STRM；NFO 和图片仍保存在 /media。留空三项则保持原存储方式。
-							</p>
-						</div>
-						<div class="space-y-2">
-							<Label for="cd2-url">CD2 地址</Label>
-							<Input
-								id="cd2-url"
-								placeholder="http://clouddrive2:19798/"
-								bind:value={formData.cd2_url}
-							/>
-						</div>
-						<div class="space-y-2">
-							<Label for="cd2-token">CD2 API 令牌</Label>
-							<PasswordInput
-								id="cd2-token"
-								placeholder="粘贴 CD2 API 令牌"
-								bind:value={formData.cd2_token}
-							/>
-						</div>
-						<div class="space-y-2">
-							<Label for="cd2-save-path">115 保存根目录（CD2 内路径）</Label>
-							<Input
-								id="cd2-save-path"
-								placeholder="/媒体库/Bilibili"
-								bind:value={formData.cd2_save_path}
-							/>
-							<p class="text-muted-foreground text-xs">
-								/media 下的相对目录会原样追加到这里。路径以 API
-								令牌的授权根目录为准，不要重复添加网盘名称。
-							</p>
-						</div>
-					</div>
-
-					<Cd2Connection />
-
-					<div class="space-y-2 rounded-xl border p-5">
-						<Label for="strm-url">STRM 播放服务地址</Label><Input
-							id="strm-url"
-							bind:value={formData.strm_base_url}
-							placeholder="https://bili-sync.example.com"
-						/>
-						<p class="text-muted-foreground text-sm">
-							填写播放器可以访问的本服务地址。上传完成后，在对应的本地元数据目录生成同名
-							STRM，无需扫描目录。留空关闭自动生成。
+					<div class="space-y-3 rounded-xl border p-5">
+						<Label for="storage-mode">新视频保存方式</Label>
+						<select
+							id="storage-mode"
+							class="w-full rounded-md border bg-background p-3"
+							bind:value={formData.storage_mode}
+						>
+							<option value="local">本地存储 · 视频和元数据保存在订阅目录</option>
+							<option value="cloud">网盘分流 · 视频上传 115，元数据保存在本地</option>
+							<option value="auto">沿用现有配置 · 兼容原来的 CD2 / 分离挂载设置</option>
+						</select>
+						<p class="text-sm text-muted-foreground">
+							切换只影响后续保存，不搬移已有视频。本地模式不需要 115 登录或 CD2，视频与
+							NFO、图片一起保存在原订阅路径。
 						</p>
 					</div>
+					{#if formData.storage_mode !== 'local'}
+						<CloudAccount />
+						<div class="space-y-4">
+							<div>
+								<h3 class="text-lg font-semibold">CloudDrive2 直传 115</h3>
+								<p class="text-muted-foreground text-sm">
+									填写三项后，新视频先下载到容器临时目录，再经 CD2 上传到
+									115。确认云端上传完成后生成 STRM；NFO 和图片仍保存在
+									/media。网盘分流模式需填写完整。
+								</p>
+							</div>
+							<div class="space-y-2">
+								<Label for="cd2-url">CD2 地址</Label>
+								<Input
+									id="cd2-url"
+									placeholder="http://clouddrive2:19798/"
+									bind:value={formData.cd2_url}
+								/>
+							</div>
+							<div class="space-y-2">
+								<Label for="cd2-token">CD2 API 令牌</Label>
+								<PasswordInput
+									id="cd2-token"
+									placeholder="粘贴 CD2 API 令牌"
+									bind:value={formData.cd2_token}
+								/>
+							</div>
+							<div class="space-y-2">
+								<Label for="cd2-save-path">115 保存根目录（CD2 内路径）</Label>
+								<Input
+									id="cd2-save-path"
+									placeholder="/媒体库/Bilibili"
+									bind:value={formData.cd2_save_path}
+								/>
+								<p class="text-muted-foreground text-xs">
+									/media 下的相对目录会原样追加到这里。路径以 API
+									令牌的授权根目录为准，不要重复添加网盘名称。
+								</p>
+							</div>
+						</div>
+
+						<Cd2Connection
+							url={formData.cd2_url}
+							token={formData.cd2_token}
+							path={formData.cd2_save_path}
+						/>
+
+						<div class="space-y-2 rounded-xl border p-5">
+							<Label for="strm-url">STRM 播放服务地址</Label><Input
+								id="strm-url"
+								bind:value={formData.strm_base_url}
+								placeholder="https://bili-sync.example.com"
+							/>
+							<p class="text-muted-foreground text-sm">
+								填写播放器可以访问的本服务地址。上传完成后，在对应的本地元数据目录生成同名
+								STRM，无需扫描目录。留空关闭自动生成。
+							</p>
+						</div>
+					{/if}
 				</Tabs.Content>
 				<Tabs.Content value="appearance" class="mt-6 space-y-6">
 					<div>
@@ -1102,7 +1127,8 @@
 	{:else}
 		<div class="flex items-center justify-center py-16">
 			<div class="space-y-4 text-center">
-				<p class="text-muted-foreground">请先进行前端认证以加载配置</p>
+				<p class="text-muted-foreground">请到 B 站账号页面完成前端认证以加载配置。</p>
+				<a href="/settings?section=auth" class="text-primary underline">前往 B 站账号</a>
 			</div>
 		</div>
 	{/if}

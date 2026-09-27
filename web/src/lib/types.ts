@@ -30,6 +30,8 @@ export interface VideoSourcesResponse {
 }
 
 export interface VideoInfo {
+	created_at?: string;
+	favtime?: string;
 	cover?: string;
 	id: number;
 	bvid: string;
@@ -372,6 +374,7 @@ export interface Config {
 	ignore_common_errors: boolean;
 	media_index_webhook_url: string;
 	media_index_webhook_token: string;
+	storage_mode?: 'auto' | 'local' | 'cloud';
 	cd2_url: string;
 	cd2_token: string;
 	cd2_save_path: string;

@@ -1,5 +1,6 @@
 export const themes = [
-	{ id: 'blue', name: '海盐蓝', color: '#2563eb' },
+	{ id: 'pink', name: '哔哩粉', color: '#fb7299' },
+	{ id: 'pink', name: '海盐蓝', color: '#2563eb' },
 	{ id: 'violet', name: '鸢尾紫', color: '#7c3aed' },
 	{ id: 'rose', name: '蔷薇红', color: '#be185d' },
 	{ id: 'amber', name: '琥珀橙', color: '#b45309' },
@@ -9,9 +10,9 @@ export const themes = [
 export function getTheme(): string {
 	try {
 		const id = localStorage.getItem('bili-theme');
-		return themes.some((t) => t.id === id) ? id! : 'blue';
+		return themes.some((t) => t.id === id) ? id! : 'pink';
 	} catch {
-		return 'blue';
+		return 'pink';
 	}
 }
 export function applyTheme(id: string) {

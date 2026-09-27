@@ -111,12 +111,14 @@ async fn init() -> Result<(Arc<BiliClient>, DatabaseConnection, LogHelper)> {
         bail!("ffmpeg 不存在或无法执行，请确保已正确安装 ffmpeg，并且 {ffmpeg_path} 命令可用");
     }
 
-    storage::StorageLayout::from_env().context("媒体与元数据目录配置无效")?;
     let connection = setup_database(&CONFIG_DIR.join("data.sqlite"))
         .await
         .context("数据库初始化失败")?;
     info!("数据库初始化完成");
     VersionedConfig::init(&connection).await.context("配置初始化失败")?;
+    if VersionedConfig::get().read().storage_mode != config::StorageMode::Local {
+        storage::StorageLayout::from_env().context("媒体与元数据目录配置无效")?;
+    }
     info!("配置初始化完成");
 
     Ok((Arc::new(BiliClient::new()), connection, log_writer))

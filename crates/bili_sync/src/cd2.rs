@@ -28,6 +28,19 @@ pub struct Cd2Client {
 
 impl Cd2Client {
     pub fn configured(config: &Config) -> Result<Option<Self>> {
+        if config.storage_mode == crate::config::StorageMode::Local {
+            return Ok(None);
+        }
+        let client = Self::connection(config)?;
+        ensure!(
+            config.storage_mode != crate::config::StorageMode::Cloud || client.is_some(),
+            "网盘分流需要配置 CD2 地址、令牌和保存路径"
+        );
+        Ok(client)
+    }
+
+    // Existing cloud files remain playable after changing the destination for new videos.
+    pub fn connection(config: &Config) -> Result<Option<Self>> {
         let url = config.cd2_url.trim();
         let token = config.cd2_token.trim();
         let save_path = config.cd2_save_path.trim();
@@ -715,9 +728,29 @@ mod tests {
     }
 
     #[test]
+    fn local_mode_ignores_retained_cloud_settings() {
+        let config = Config {
+            storage_mode: crate::config::StorageMode::Local,
+            cd2_url: "retained old address".into(),
+            ..Config::default()
+        };
+        assert!(Cd2Client::configured(&config).unwrap().is_none());
+    }
+
+    #[test]
+    fn cloud_mode_requires_connection_settings() {
+        let config = Config {
+            storage_mode: crate::config::StorageMode::Cloud,
+            ..Config::default()
+        };
+        assert!(Cd2Client::configured(&config).is_err());
+    }
+
+    #[test]
     fn old_config_without_cd2_fields_stays_disabled() {
         let mut saved = serde_json::to_value(Config::default()).unwrap();
         let fields = saved.as_object_mut().unwrap();
+        fields.remove("storage_mode");
         fields.remove("cd2_url");
         fields.remove("cd2_token");
         fields.remove("cd2_save_path");

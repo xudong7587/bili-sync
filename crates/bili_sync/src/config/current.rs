@@ -25,6 +25,15 @@ pub static CONFIG_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
         .expect("No config path found")
 });
 
+#[derive(Serialize, Deserialize, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum StorageMode {
+    #[default]
+    Auto,
+    Local,
+    Cloud,
+}
+
 #[derive(Serialize, Deserialize, Validate, Clone)]
 pub struct Config {
     pub auth_token: String,
@@ -46,6 +55,8 @@ pub struct Config {
     pub media_index_webhook_url: String,
     #[serde(default)]
     pub media_index_webhook_token: String,
+    #[serde(default)]
+    pub storage_mode: StorageMode,
     #[serde(default)]
     pub cd2_url: String,
     #[serde(default)]
@@ -153,6 +164,7 @@ impl Default for Config {
             ignore_common_errors: false,
             media_index_webhook_url: String::new(),
             media_index_webhook_token: String::new(),
+            storage_mode: StorageMode::Auto,
             cd2_url: String::new(),
             cd2_token: String::new(),
             cd2_save_path: String::new(),

@@ -155,7 +155,7 @@
 		</section>
 		<section class="rounded-xl border bg-card p-5">
 			<div class="flex justify-between">
-				<h2 class="font-semibold">云端视频分布</h2>
+				<h2 class="font-semibold">视频分布</h2>
 				<span class="text-muted-foreground text-xs">{count} 个文件</span>
 			</div>
 			<div class="mt-5 flex flex-wrap items-center gap-5">
@@ -163,7 +163,7 @@
 					class="relative grid size-36 shrink-0 place-items-center rounded-full"
 					style:background={total ? `conic-gradient(${pie})` : 'var(--muted)'}
 					role="img"
-					aria-label={`已记录云端视频 ${count} 个，总大小 ${bytes(total)}`}
+					aria-label={`已记录视频 ${count} 个，总大小 ${bytes(total)}`}
 				>
 					<div class="grid size-24 place-content-center rounded-full bg-card text-center">
 						<strong class="text-lg">{bytes(total)}</strong><span
@@ -180,11 +180,11 @@
 							><span class="text-muted-foreground tabular-nums"
 								>{folder.count} 个 · {bytes(folder.bytes)}</span
 							>
-						</li>{:else}<li class="text-muted-foreground text-xs">上传完成后自动记录</li>{/each}
+						</li>{:else}<li class="text-muted-foreground text-xs">视频保存后自动记录</li>{/each}
 				</ul>
 			</div>
 			<p class="text-muted-foreground mt-5 text-xs">
-				按本地上传记录汇总。旧视频尚未登记的大小未统计；不扫描网盘目录。
+				按本地保存记录汇总。旧视频尚未登记的大小未统计；不扫描网盘目录。
 			</p>
 			{#if storageError}<p class="text-destructive mt-2 text-xs">{storageError}</p>{/if}
 		</section>

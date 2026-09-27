@@ -241,7 +241,8 @@ class ApiClient {
 		return this.get<{ name: string; bytes: number; count: number }[]>('/dashboard/storage');
 	}
 
-	async cloudSpace() {
+	async cloudSpace(connection?: { url: string; token: string; path: string }) {
+		if (connection) return this.post<{ free: number; total: number }>('/cloud/space', connection);
 		return this.get<{ total: number; used: number; free: number }>('/cloud/space');
 	}
 	async cloudLoginStart(client_id: string, channel: string) {
@@ -374,7 +375,8 @@ const api = {
 	libraryJob: () => apiClient.libraryJob(),
 
 	storageSummary: () => apiClient.storageSummary(),
-	cloudSpace: () => apiClient.cloudSpace(),
+	cloudSpace: (connection?: { url: string; token: string; path: string }) =>
+		apiClient.cloudSpace(connection),
 	cloudAccountCheck: () => apiClient.cloudAccountCheck(),
 	cloudLoginStart: (client_id: string, channel: string) =>
 		apiClient.cloudLoginStart(client_id, channel),

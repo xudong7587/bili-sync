@@ -50,6 +50,7 @@
 	let presentation: 'card' | 'list' = 'list';
 	let sort = 'newest';
 	let resettingSelected = false;
+	let cardSelected: number[] = [];
 	async function resetSelected(ids: number[]) {
 		resettingSelected = true;
 		let failed = 0;
@@ -157,6 +158,7 @@
 		createdTo: string | null = null
 	) {
 		const sequence = ++loadSequence;
+		cardSelected = [];
 		loading = true;
 		try {
 			const params: Record<string, string | number | boolean> = {
@@ -455,8 +457,10 @@
 			aria-label="呈现模式"
 			class="rounded-md border bg-background px-3 py-2 text-sm"
 			bind:value={presentation}
-			onchange={() => localStorage.setItem('video-wall-mode', presentation)}
-			><option value="card">海报卡片</option><option value="list">列表</option></select
+			onchange={() => {
+				localStorage.setItem('video-wall-mode', presentation);
+				cardSelected = [];
+			}}><option value="card">海报卡片</option><option value="list">列表</option></select
 		>
 		<select
 			aria-label="视频排序"
@@ -587,8 +591,16 @@
 </div>
 
 {#if videosData}
-	<div class="mb-6 flex items-center justify-between">
-		<div class="flex items-center gap-6">
+	<div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+		<div class="flex flex-wrap items-center gap-4">
+			{#if presentation === 'card'}<Checkbox
+					aria-label="选择当前页所有视频"
+					checked={cardSelected.length === videosData.videos.length && cardSelected.length > 0}
+					indeterminate={cardSelected.length > 0 && cardSelected.length < videosData.videos.length}
+					disabled={loading || resettingSelected}
+					onCheckedChange={(checked) =>
+						(cardSelected = checked ? videosData!.videos.map((v) => v.id) : [])}
+				/>{/if}
 			<div class=" text-sm font-medium">
 				共 {videosData.total_count} 个视频
 			</div>
@@ -636,10 +648,31 @@
 			busy={resettingSelected}
 		/>
 	{:else}
+		{#if cardSelected.length}<div
+				class="mb-3 flex flex-wrap items-center gap-3 rounded-lg border bg-primary/5 px-3 py-2 text-xs"
+			>
+				<span>已选 {cardSelected.length} 个视频（当前页）</span><Button
+					size="sm"
+					variant="outline"
+					disabled={resettingSelected}
+					onclick={() => resetSelected([...cardSelected])}>重试所选失败任务</Button
+				><Button
+					size="sm"
+					variant="ghost"
+					disabled={resettingSelected}
+					onclick={() => (cardSelected = [])}>取消选择</Button
+				>
+			</div>{/if}
 		<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
 			{#each videosData.videos as video (video.id)}
 				<VideoCard
 					{video}
+					selected={cardSelected.includes(video.id)}
+					selectionDisabled={resettingSelected}
+					onSelect={(checked) =>
+						(cardSelected = checked
+							? [...cardSelected.filter((id) => id !== video.id), video.id]
+							: cardSelected.filter((id) => id !== video.id))}
 					source={getVideoSource(video)}
 					onReset={async (forceReset: boolean) => {
 						await handleResetVideo(video.id, forceReset);

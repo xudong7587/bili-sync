@@ -89,8 +89,10 @@ async fn storage(
                         .filter(|m| m.is_file())
                         .map(|m| m.len())
                 }
-            } else if local {
-                if let Some(path) = &part.path {
+            } else if let Some(path) = &part.path {
+                // /media is the local metadata mount in split mode. Old MP4s
+                // may still be here after switching new downloads to CD2.
+                if local || Path::new(path).starts_with(&root) {
                     tokio::fs::metadata(path)
                         .await
                         .ok()

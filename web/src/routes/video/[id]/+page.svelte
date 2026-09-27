@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import api from '$lib/api';
 	import SquareArrowOutUpRightIcon from '@lucide/svelte/icons/square-arrow-out-up-right';
@@ -17,6 +17,10 @@
 
 	let videoData: VideoResponse | null = null;
 	let loading = false;
+	let detailSequence = 0;
+	onDestroy(() => {
+		detailSequence++;
+	});
 	let error: string | null = null;
 	let resetDialogOpen = false;
 	let resetting = false;
@@ -26,6 +30,7 @@
 	let statusEditorLoading = false;
 
 	async function loadVideoDetail() {
+		const sequence = ++detailSequence;
 		const videoId = parseInt($page.params.id!);
 		if (isNaN(videoId)) {
 			error = '无效的视频 ID';
@@ -36,15 +41,16 @@
 		error = null;
 		try {
 			const result = await api.getVideo(videoId);
-			videoData = result.data;
+			if (sequence === detailSequence) videoData = result.data;
 		} catch (cause) {
+			if (sequence !== detailSequence) return;
 			error = (cause as ApiError).message || '加载视频详情失败';
 			console.error('加载视频详情失败：', cause);
 			toast.error('加载视频详情失败', {
 				description: error
 			});
 		} finally {
-			loading = false;
+			if (sequence === detailSequence) loading = false;
 		}
 	}
 
@@ -213,7 +219,7 @@
 						<div>
 							<dt class="text-muted-foreground">{label}</dt>
 							<dd class="mt-1 tabular-nums">
-								{value ? new Date(value).toLocaleString('zh-CN') : '—'}
+								{value ? value.replace('T', ' ').slice(0, 16) : '—'}
 							</dd>
 						</div>
 					{/each}

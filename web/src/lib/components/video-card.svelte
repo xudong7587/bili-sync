@@ -20,6 +20,9 @@
 	// 将 bvid 设置为可选属性，但保留 VideoInfo 的其它所有属性
 
 	export let video: Omit<VideoInfo, 'bvid'> & { bvid?: string };
+	export let selected = false;
+	export let selectionDisabled = false;
+	export let onSelect: ((checked: boolean) => void) | null = null;
 	export let source: { type: string; name: string } | null = null; // 视频源信息
 	export let showActions: boolean = true; // 控制是否显示操作按钮
 	export let mode: 'default' | 'detail' | 'page' = 'default'; // 卡片模式
@@ -117,15 +120,25 @@
 	$: displayTitle = customTitle || video.name;
 	$: displaySubtitle = customSubtitle || video.upper_name;
 	function date(value?: string) {
-		if (!value) return '—';
-		const parsed = new Date(value);
-		return Number.isNaN(parsed.getTime()) ? '—' : parsed.toLocaleDateString('zh-CN');
+		return value ? value.replace('T', ' ').slice(5, 16) : '—';
 	}
 </script>
 
 <article
-	class="group flex h-full min-w-0 flex-col overflow-hidden rounded-xl border bg-card shadow-sm transition-shadow hover:shadow-md"
+	class="group relative flex h-full min-w-0 flex-col overflow-hidden rounded-xl border bg-card shadow-sm transition-shadow hover:shadow-md"
+	class:ring-2={selected}
+	class:ring-primary={selected}
 >
+	{#if mode === 'default' && onSelect}<div
+			class="absolute right-2 top-2 z-10 grid size-7 place-items-center rounded-md bg-background/90 shadow-sm"
+		>
+			<Checkbox
+				aria-label={`选择 ${displayTitle}`}
+				checked={selected}
+				disabled={selectionDisabled}
+				onCheckedChange={onSelect}
+			/>
+		</div>{/if}
 	{#if mode === 'default'}
 		<a
 			href={`/video/${video.id}`}

@@ -1013,7 +1013,7 @@
 								<h3 class="text-lg font-semibold">CloudDrive2 直传 115</h3>
 								<p class="text-muted-foreground text-sm">
 									填写三项后，新视频先下载到容器临时目录，再经 CD2 上传到 115。使用 CD2 已登录的 115
-									账号，无需再次扫码。确认云端上传完成后生成 STRM；NFO 和图片仍保存在
+									账号，无需再次扫码。确认上传完成后可通知 MediaIndex 生成 STRM；NFO 和图片仍保存在
 									/media。网盘分流模式需填写完整。
 								</p>
 							</div>

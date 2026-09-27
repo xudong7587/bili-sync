@@ -40,6 +40,7 @@
 				page: index,
 				query,
 				favorite: $page.url.searchParams.get('favorite'),
+				watch_later: $page.url.searchParams.get('watch_later'),
 				submission: $page.url.searchParams.get('submission'),
 				collection: $page.url.searchParams.get('collection')
 			});
@@ -78,7 +79,14 @@
 	async function run(action: string) {
 		busy = true;
 		try {
-			await api.libraryStart(selected, action);
+			await api.libraryStart(
+				action === 'upgrade'
+					? selected.filter((id) =>
+							rows.some((row) => row.id === id && row.comparison?.upgradeable)
+						)
+					: selected,
+				action
+			);
 			await poll();
 		} catch (e) {
 			busy = false;
@@ -156,7 +164,9 @@
 			disabled={!selected.length || busy || job?.running}
 			onclick={() => run('strm')}>补写 STRM</Button
 		>
-		<p class="text-muted-foreground text-xs">升级先验证实际文件，保留旧版本。</p>
+		<p class="text-muted-foreground text-xs">
+			升级先验证实际文件，保留旧版本。旧视频缺少本地记录时，仅核对所选文件的实际画质。
+		</p>
 	</div>
 	{#if job && (job.running || job.results.length)}<section
 			class="rounded-xl border p-4"

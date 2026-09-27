@@ -111,7 +111,7 @@ pub async fn probe(path: &Path, mut quality: SavedQuality) -> Result<SavedQualit
             .output(),
     )
     .await??;
-    ensure!(output.status.success(), "无法读取本地视频画质");
+    ensure!(output.status.success(), "无法读取视频实际画质，原文件未改动");
     let value: serde_json::Value = serde_json::from_slice(&output.stdout)?;
     let stream = &value["streams"][0];
     quality.width = stream["width"].as_u64().map(|v| v as u32);

@@ -140,23 +140,41 @@ pub async fn start(db: sea_orm::DatabaseConnection, client: Arc<BiliClient>, mut
     Ok(())
 }
 
-async fn baseline(video: &video::Model, page: &page::Model) -> Result<FileReceipt> {
+async fn baseline(video: &video::Model, page: &page::Model, config: &Config) -> Result<FileReceipt> {
     if let Some(receipt) = library::load(video.id, page.cid).await? {
         return Ok(receipt);
     }
     let metadata = PathBuf::from(page.path.as_ref().context("尚未保存视频路径")?);
-    // Legacy split/cloud media has no reliable local quality baseline. Do not infer from source dimensions.
-    ensure!(
-        metadata.is_file(),
-        "旧视频尚无本地画质记录；保留原状态，不根据 B 站源尺寸猜测已存画质"
-    );
-    let quality = library::probe(&metadata, SavedQuality::default()).await?;
+    let (storage_path, cloud, bytes, quality) = if metadata.is_file() {
+        (
+            metadata.to_string_lossy().into_owned(),
+            false,
+            tokio::fs::metadata(&metadata).await?.len(),
+            library::probe(&metadata, SavedQuality::default()).await?,
+        )
+    } else if let Some(cd2) = crate::cd2::Cd2Client::configured(config)? {
+        // Explicit manual checks inspect only the selected file, never a recursive directory scan.
+        let path = cd2.remote_path(&metadata)?;
+        let bytes = cd2.existing_size(&path).await?;
+        let url = cd2.download_url(&path).await?;
+        let quality = library::probe(Path::new(url.as_str()), SavedQuality::default()).await?;
+        (path, true, bytes, quality)
+    } else {
+        let local = crate::storage::StorageLayout::video_path_for(&metadata)?;
+        ensure!(local.is_file(), "找不到已保存视频，无法确认实际画质");
+        (
+            local.to_string_lossy().into_owned(),
+            false,
+            tokio::fs::metadata(&local).await?.len(),
+            library::probe(&local, SavedQuality::default()).await?,
+        )
+    };
     let receipt = FileReceipt {
         video_id: video.id,
         cid: page.cid,
-        storage_path: metadata.to_string_lossy().into_owned(),
-        cloud: false,
-        bytes: tokio::fs::metadata(&metadata).await?.len(),
+        storage_path,
+        cloud,
+        bytes,
         metadata_path: metadata,
         quality,
         uploaded_at: String::new(),
@@ -178,7 +196,7 @@ async fn candidate(
         duration: page.duration,
         ..Default::default()
     };
-    let analyzer = bili.get_page_analyzer(&info).await?;
+    let mut analyzer = bili.get_page_analyzer(&info).await?;
     let details = analyzer.info.clone();
     let mut filter = config.filter_option.clone();
     filter.video_max_quality = VideoQuality::Quality8k;
@@ -223,7 +241,7 @@ async fn process(
         .await?
         .context("视频不存在")?;
     ensure!(((page.download_status >> 3) & 7) == 7, "视频尚未下载完成");
-    let old = baseline(&video, &page).await?;
+    let old = baseline(&video, &page, config).await?;
     if action == "strm" {
         ensure!(
             old.cloud && !config.strm_base_url.is_empty(),

@@ -55,6 +55,7 @@ async fn play(Path((video_id, cid, token)): Path<(i32, i64, String)>, headers: H
 #[derive(serde::Deserialize)]
 struct LibraryQuery {
     favorite: Option<i32>,
+    watch_later: Option<i32>,
     submission: Option<i32>,
     collection: Option<i32>,
     query: Option<String>,
@@ -90,6 +91,7 @@ async fn list(
     let mut videos = video::Entity::find();
     for (id, column) in [
         (query.favorite, video::Column::FavoriteId),
+        (query.watch_later, video::Column::WatchLaterId),
         (query.collection, video::Column::CollectionId),
         (query.submission, video::Column::SubmissionId),
     ] {

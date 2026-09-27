@@ -475,7 +475,13 @@
 								<Table.Body>
 									{#each sources as source, index (index)}
 										<Table.Row>
-											<Table.Cell class="font-medium">{source.name}</Table.Cell>
+											<Table.Cell class="font-medium"
+												><a
+													class="hover:text-primary hover:underline"
+													href={`/library?${key === 'favorites' ? 'favorite' : key === 'submissions' ? 'submission' : key === 'watch_later' ? 'watch_later' : 'collection'}=${source.id}`}
+													>{source.name}</a
+												></Table.Cell
+											>
 											<Table.Cell>
 												<div
 													class="bg-secondary hover:bg-secondary/80 flex w-fit cursor-text items-center gap-2 rounded-md px-2.5 py-1.5 transition-colors"

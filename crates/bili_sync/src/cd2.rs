@@ -135,7 +135,7 @@ impl Cd2Client {
         Ok(())
     }
 
-    pub async fn download(&self, path: &str, range: Option<&str>, head: bool) -> Result<reqwest::Response> {
+    pub async fn download_url(&self, path: &str) -> Result<Url> {
         let info: DownloadUrlPathInfo = self
             .call_one(
                 "GetDownloadUrlPath",
@@ -147,17 +147,46 @@ impl Cd2Client {
                 },
             )
             .await?;
-        let host = match self.url.port() {
-            Some(port) => format!("{}:{port}", self.url.host_str().context("CD2 host missing")?),
-            None => self.url.host_str().context("CD2 host missing")?.to_owned(),
-        };
+        let origin = self.url.origin().ascii_serialization();
+        let host = origin.split_once("://").context("CD2 host missing")?.1;
         let download_path = info
             .download_url_path
             .replace("{SCHEME}", self.url.scheme())
-            .replace("{HOST}", &host)
+            .replace("{HOST}", host)
             .replace("{PREVIEW}", "false");
         let url = self.url.join(&download_path)?;
         ensure!(url.origin() == self.url.origin(), "CD2 下载入口不是已配置的服务");
+        Ok(url)
+    }
+
+    pub async fn existing_size(&self, path: &str) -> Result<u64> {
+        let file: CloudDriveFile = self
+            .call_one(
+                "FindFileByPath",
+                &FindFileByPathRequest {
+                    parent_path: "/".into(),
+                    path: path.into(),
+                },
+            )
+            .await?;
+        ensure!(
+            file.is_cloud_file && file.file_type == 1 && !file.id.is_empty() && file.size > 0,
+            "未确认云端视频存在"
+        );
+        ensure!(
+            !self
+                .upload_list()
+                .await?
+                .upload_files
+                .iter()
+                .any(|task| task.dest_path == path),
+            "视频仍在上传，请稍后核对"
+        );
+        Ok(file.size)
+    }
+
+    pub async fn download(&self, path: &str, range: Option<&str>, head: bool) -> Result<reqwest::Response> {
+        let url = self.download_url(path).await?;
         // The CD2-generated file URL supplies scoped download authorization. Never forward the API token.
         let client = Client::builder()
             .no_proxy()
@@ -778,4 +807,12 @@ pub struct QrMessage {
     pub message_type: i32,
     #[prost(string, tag = "2")]
     pub message: String,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct FindFileByPathRequest {
+    #[prost(string, tag = "1")]
+    parent_path: String,
+    #[prost(string, tag = "2")]
+    path: String,
 }

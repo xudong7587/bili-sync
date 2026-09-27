@@ -1,0 +1,165 @@
+//! Durable per-file receipts. Upload acknowledgement is persisted before external library notification.
+pub mod cloud_replace;
+pub mod local_replace;
+
+use std::path::{Path, PathBuf};
+
+use anyhow::{Context, Result, ensure};
+use serde::{Deserialize, Serialize};
+
+use crate::config::CONFIG_DIR;
+
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct SavedQuality {
+    pub qn: Option<u32>,
+    pub codec: Option<String>,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub duration: Option<f64>,
+    pub bitrate: Option<u64>,
+    pub frame_rate: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct FileReceipt {
+    pub video_id: i32,
+    pub cid: i64,
+    pub metadata_path: PathBuf,
+    pub storage_path: String,
+    pub cloud: bool,
+    #[serde(default)]
+    pub cloud_file_id: Option<String>,
+    pub bytes: u64,
+    pub quality: SavedQuality,
+    pub uploaded_at: String,
+    pub playback_token: String,
+}
+
+fn receipt_path(video_id: i32, cid: i64) -> PathBuf {
+    CONFIG_DIR.join("library").join(format!("{video_id}-{cid}.json"))
+}
+pub async fn load(video_id: i32, cid: i64) -> Result<Option<FileReceipt>> {
+    match tokio::fs::read(receipt_path(video_id, cid)).await {
+        Ok(bytes) => Ok(Some(serde_json::from_slice(&bytes)?)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}
+pub async fn save(receipt: &FileReceipt) -> Result<()> {
+    let path = receipt_path(receipt.video_id, receipt.cid);
+    tokio::fs::create_dir_all(path.parent().context("missing receipt parent")?).await?;
+    atomic_write(&path, &serde_json::to_vec_pretty(receipt)?).await
+}
+pub async fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
+    let temporary = path.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()));
+    let result = async {
+        tokio::fs::write(&temporary, bytes).await?;
+        let file = tokio::fs::OpenOptions::new().write(true).open(&temporary).await?;
+        file.sync_all().await?;
+        tokio::fs::rename(&temporary, path).await?;
+        sync_parent(path).await?;
+        Result::<()>::Ok(())
+    }
+    .await;
+    if result.is_err() {
+        let _ = tokio::fs::remove_file(temporary).await;
+    }
+    result
+}
+/// Flush the directory entry as well as file content on the NAS.
+pub async fn sync_parent(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    tokio::fs::File::open(path.parent().context("missing parent")?)
+        .await?
+        .sync_all()
+        .await?;
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
+}
+
+pub async fn invalidate_video(video_id: i32) -> Result<()> {
+    invalidate_video_at(&CONFIG_DIR.join("library"), video_id).await
+}
+async fn invalidate_video_at(directory: &Path, video_id: i32) -> Result<()> {
+    let mut entries = match tokio::fs::read_dir(directory).await {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    let prefix = format!("{video_id}-");
+    while let Some(entry) = entries.next_entry().await? {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some(cid) = name.strip_prefix(&prefix).and_then(|s| s.strip_suffix(".json")) else {
+            continue;
+        };
+        if cid.parse::<i64>().is_err() {
+            continue;
+        }
+        let backup = directory.join(format!("{video_id}-{cid}-reset-backup-{}.json", uuid::Uuid::new_v4()));
+        tokio::fs::rename(entry.path(), &backup).await?;
+        sync_parent(&backup).await?;
+    }
+    Ok(())
+}
+
+pub async fn probe(path: &Path, mut quality: SavedQuality) -> Result<SavedQuality> {
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        tokio::process::Command::new("ffprobe")
+            .args([
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height,codec_name,bit_rate,r_frame_rate:format=duration,bit_rate",
+                "-of",
+                "json",
+            ])
+            .arg(path)
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await??;
+    ensure!(output.status.success(), "无法读取视频实际画质，原文件未改动");
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    let stream = &value["streams"][0];
+    quality.width = stream["width"].as_u64().map(|v| v as u32);
+    quality.height = stream["height"].as_u64().map(|v| v as u32);
+    quality.codec = stream["codec_name"].as_str().map(str::to_owned);
+    quality.frame_rate = stream["r_frame_rate"].as_str().map(str::to_owned);
+    quality.duration = value["format"]["duration"].as_str().and_then(|v| v.parse().ok());
+    quality.bitrate = stream["bit_rate"]
+        .as_str()
+        .or_else(|| value["format"]["bit_rate"].as_str())
+        .and_then(|v| v.parse().ok());
+    Ok(quality)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn reset_invalidates_only_active_receipts_for_the_selected_video() {
+        let dir = std::env::temp_dir().join(format!("bili-reset-{}", uuid::Uuid::new_v4()));
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        for name in ["12-34.json", "12-35.json", "13-34.json", "12-34-backup-old.json"] {
+            tokio::fs::write(dir.join(name), b"receipt").await.unwrap();
+        }
+        invalidate_video_at(&dir, 12).await.unwrap();
+        assert!(!dir.join("12-34.json").exists());
+        assert!(!dir.join("12-35.json").exists());
+        assert!(dir.join("13-34.json").exists());
+        assert!(dir.join("12-34-backup-old.json").exists());
+        invalidate_video_at(&dir, 12).await.unwrap();
+        let mut entries = tokio::fs::read_dir(&dir).await.unwrap();
+        let mut count = 0;
+        while let Some(entry) = entries.next_entry().await.unwrap() {
+            assert_eq!(tokio::fs::read(entry.path()).await.unwrap(), b"receipt");
+            count += 1;
+        }
+        assert_eq!(count, 4);
+        tokio::fs::remove_dir_all(dir).await.unwrap();
+    }
+}

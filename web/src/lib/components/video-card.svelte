@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Badge } from '$lib/components/ui/badge/index.js';
-	import { Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui/card/index.js';
+
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
@@ -8,19 +8,21 @@
 	import { Label } from '$lib/components/ui/label/index.js';
 	import type { VideoInfo } from '$lib/types';
 	import BrushCleaningIcon from '@lucide/svelte/icons/brush-cleaning';
-	import ClockIcon from '@lucide/svelte/icons/clock';
+
 	import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
 	import FolderIcon from '@lucide/svelte/icons/folder';
-	import HeartIcon from '@lucide/svelte/icons/heart';
-	import InfoIcon from '@lucide/svelte/icons/info';
+
 	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
 	import SquareArrowOutUpRightIcon from '@lucide/svelte/icons/square-arrow-out-up-right';
 	import UserIcon from '@lucide/svelte/icons/user';
 	import { goto } from '$app/navigation';
-	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
 
 	// 将 bvid 设置为可选属性，但保留 VideoInfo 的其它所有属性
+
 	export let video: Omit<VideoInfo, 'bvid'> & { bvid?: string };
+	export let selected = false;
+	export let selectionDisabled = false;
+	export let onSelect: ((checked: boolean) => void) | null = null;
 	export let source: { type: string; name: string } | null = null; // 视频源信息
 	export let showActions: boolean = true; // 控制是否显示操作按钮
 	export let mode: 'default' | 'detail' | 'page' = 'default'; // 卡片模式
@@ -44,16 +46,6 @@
 			return '未开始';
 		} else {
 			return `失败${status}次`;
-		}
-	}
-
-	function getSegmentColor(status: number): string {
-		if (status === 7) {
-			return 'bg-emerald-500';
-		} else if (status === 0) {
-			return 'bg-yellow-500';
-		} else {
-			return 'bg-rose-500';
 		}
 	}
 
@@ -127,109 +119,116 @@
 	// 根据模式确定显示的标题和副标题
 	$: displayTitle = customTitle || video.name;
 	$: displaySubtitle = customSubtitle || video.upper_name;
-	$: cardClasses =
-		mode === 'default'
-			? 'group flex h-full min-w-0 flex-col transition-all hover:shadow-lg hover:shadow-primary/5 border-border/50'
-			: 'transition-all hover:shadow-lg border-border/50';
+	function date(value?: string) {
+		return value ? value.replace('T', ' ').slice(5, 16) : '—';
+	}
 </script>
 
-<Card class={cardClasses}>
-	<CardHeader class="shrink-0 pb-1">
-		<div class="flex min-w-0 items-start justify-between gap-3">
-			<CardTitle
-				class="line-clamp-2 min-w-0 flex-1 cursor-default {mode === 'default'
-					? 'text-sm'
-					: 'text-sm'} leading-relaxed font-medium"
-				title={displayTitle}
-			>
-				{displayTitle}
-			</CardTitle>
-			<Badge
-				variant="secondary"
-				class="shrink-0 px-2 py-1 text-xs font-medium {overallStatus.style} "
-			>
-				{overallStatus.text}
-			</Badge>
-		</div>
-		{#if displaySubtitle}
-			<div class="text-muted-foreground mt-1.5 flex min-w-0 items-center gap-1 text-sm">
-				<UserIcon class="h-3.5 w-3.5 shrink-0" />
-				<span class="min-w-0 cursor-default truncate" title={displaySubtitle}>
-					{displaySubtitle}
-				</span>
-			</div>
-		{/if}
-		{#if source}
-			<div class="text-muted-foreground mt-2 flex min-w-0 items-center justify-end gap-1 text-sm">
-				<Badge variant="outline" class="max-w-full shrink px-1.5 py-0.5">
-					{#if source.type === 'favorite'}
-						<HeartIcon class="h-3.5 w-3.5 shrink-0" />
-					{:else if source.type === 'collection'}
-						<FolderIcon class="h-3.5 w-3.5 shrink-0" />
-					{:else if source.type === 'submission'}
-						<UserIcon class="h-3.5 w-3.5 shrink-0" />
-					{:else if source.type === 'watch_later'}
-						<ClockIcon class="h-3.5 w-3.5 shrink-0" />
-					{/if}
-					<span class="min-w-0 truncate" title={source.name}>
-						{source.name}
-					</span>
-				</Badge>
-			</div>
-		{/if}
-	</CardHeader>
-	<CardContent
-		class={mode === 'default' ? 'flex min-w-0 flex-1 flex-col justify-end pt-0 pb-3' : 'pt-0 pb-4'}
-	>
-		<div class="space-y-3">
-			<!-- 进度条区域 -->
-			{#if showProgress}
-				<div class="space-y-2">
-					<!-- 进度信息 -->
-					<div class="text-muted-foreground flex justify-between text-xs font-medium">
-						<span class="truncate">下载进度</span>
-						<span class="shrink-0">{completed}/{total}</span>
-					</div>
-					<!-- 进度条 -->
-					<div class="flex w-full gap-0.5">
-						{#each video.download_status as status, index (index)}
-							<Tooltip.Root>
-								<Tooltip.Trigger class="flex-1">
-									<div
-										class="h-1.5 w-full cursor-help rounded-full transition-all {getSegmentColor(
-											status
-										)}"
-									></div>
-								</Tooltip.Trigger>
-								<Tooltip.Content>
-									<p class="text-xs">{getTaskName(index)}: {getStatusText(status)}</p>
-								</Tooltip.Content>
-							</Tooltip.Root>
-						{/each}
-					</div>
-				</div>
+<article
+	class="group relative flex h-full min-w-0 flex-col overflow-hidden rounded-xl border bg-card shadow-sm transition-shadow hover:shadow-md"
+	class:ring-2={selected}
+	class:ring-primary={selected}
+>
+	{#if mode === 'default' && onSelect}<div
+			class="absolute right-2 top-2 z-10 grid size-7 place-items-center rounded-md bg-background/90 shadow-sm"
+		>
+			<Checkbox
+				aria-label={`选择 ${displayTitle}`}
+				checked={selected}
+				disabled={selectionDisabled}
+				onCheckedChange={onSelect}
+			/>
+		</div>{/if}
+	{#if mode === 'default'}
+		<a
+			href={`/video/${video.id}`}
+			class="relative block aspect-video overflow-hidden bg-muted"
+			aria-label={`查看 ${displayTitle}`}
+		>
+			{#if video.cover}
+				<img
+					src={video.cover}
+					alt=""
+					referrerpolicy="no-referrer"
+					loading="lazy"
+					class="h-full w-full object-cover"
+				/>
+			{:else}
+				<div class="grid h-full place-content-center text-sm text-muted-foreground">暂无封面</div>
 			{/if}
-
-			{#if showActions && mode === 'default'}
-				<div class="flex min-w-0 gap-2 pt-1">
-					<Button
-						size="sm"
-						variant="outline"
-						class="hover:bg-accent hover:text-accent-foreground h-8 min-w-0 flex-1 cursor-pointer px-3 text-xs font-medium"
-						onclick={handleViewDetail}
+			<div
+				class="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/65 to-transparent"
+			></div>
+			<div
+				class="absolute inset-x-3 bottom-2.5 flex items-center justify-between gap-2 text-xs text-white"
+			>
+				<span class="rounded bg-black/45 px-2 py-0.5 backdrop-blur-sm">{overallStatus.text}</span>
+				{#if showProgress}<span class="font-semibold tabular-nums" title="下载任务完成度"
+						>{total ? Math.round((completed / total) * 100) : 0}%</span
+					>{/if}
+			</div>
+		</a>
+	{/if}
+	<div class="flex flex-1 flex-col gap-2.5 p-3">
+		<h3
+			class="line-clamp-2 text-sm font-semibold leading-5"
+			class:min-h-10={mode === 'default'}
+			title={displayTitle}
+		>
+			{#if mode === 'default'}<a href={`/video/${video.id}`} class="hover:text-primary"
+					>{displayTitle}</a
+				>{:else}{displayTitle}{/if}
+		</h3>
+		{#if displaySubtitle || source}
+			<div class="flex min-w-0 items-center justify-between gap-2 text-xs text-muted-foreground">
+				<span class="flex min-w-0 items-center gap-1.5"
+					><UserIcon class="size-3.5 shrink-0" /><span class="truncate" title={displaySubtitle}
+						>{displaySubtitle}</span
+					></span
+				>
+				{#if source}<span class="flex max-w-[45%] min-w-0 items-center gap-1"
+						><FolderIcon class="size-3 shrink-0" /><span class="truncate" title={source.name}
+							>{source.name}</span
+						></span
+					>{/if}
+			</div>
+		{/if}
+		{#if mode === 'default'}
+			<div class="grid grid-cols-2 gap-x-2 gap-y-1 text-[11px] text-muted-foreground tabular-nums">
+				<span title={video.created_at}>入库 {date(video.created_at)}</span>
+				<span class="text-right" title={video.favtime}>收藏 {date(video.favtime)}</span>
+			</div>
+		{:else if showProgress}
+			<div class="flex items-center justify-between gap-3 text-xs">
+				<Badge variant="secondary" class={overallStatus.style}>{overallStatus.text}</Badge>
+				<span class="font-semibold text-primary tabular-nums"
+					>{total ? Math.round((completed / total) * 100) : 0}% · {completed}/{total}</span
+				>
+			</div>
+			<div class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+				{#each video.download_status as status, i (i)}<span
+						>{getTaskName(i)} · {getStatusText(status)}</span
+					>{/each}
+			</div>
+		{/if}
+		{#if showActions && mode === 'default'}
+			<div class="mt-auto flex items-center justify-between gap-2 border-t pt-2">
+				<span class="truncate font-mono text-[10px] text-muted-foreground" title={video.bvid}
+					>{video.bvid || '—'}</span
+				>
+				<div class="flex shrink-0 items-center gap-1">
+					<Button size="sm" variant="ghost" class="h-7 px-2 text-xs" onclick={handleViewDetail}
+						>详情</Button
 					>
-						<InfoIcon class="mr-1.5 h-3 w-3 shrink-0" />
-						<span class="truncate">详情</span>
-					</Button>
-
 					<DropdownMenu.Root>
 						<DropdownMenu.Trigger>
 							{#snippet child({ props })}
 								<Button
 									{...props}
-									size="sm"
+									size="icon"
 									variant="outline"
-									class="hover:bg-accent hover:text-accent-foreground h-8 shrink-0 cursor-pointer px-2"
+									class="size-7 shrink-0"
+									aria-label="视频操作"
 								>
 									<EllipsisIcon class="h-3 w-3" />
 								</Button>
@@ -258,10 +257,10 @@
 						</DropdownMenu.Content>
 					</DropdownMenu.Root>
 				</div>
-			{/if}
-		</div>
-	</CardContent>
-</Card>
+			</div>
+		{/if}
+	</div>
+</article>
 
 <!-- 重置确认对话框 -->
 <AlertDialog.Root bind:open={resetDialogOpen}>

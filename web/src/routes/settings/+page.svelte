@@ -1,5 +1,10 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
+	import { page } from '$app/stores';
+	import { themes, applyTheme, getTheme } from '$lib/theme';
+	let selectedTheme = getTheme();
+	$: section = $page.url.searchParams.get('section') || 'basic';
+	$: setBreadcrumb([{ label: section === 'cloud' ? '视频网盘分流' : '设置' }]);
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
@@ -16,6 +21,7 @@
 	import InfoIcon from '@lucide/svelte/icons/info';
 	import QrCodeIcon from '@lucide/svelte/icons/qr-code';
 	import api from '$lib/api';
+	import Cd2Connection from '$lib/components/cd2-connection.svelte';
 	import { toast } from 'svelte-sonner';
 	import { setBreadcrumb } from '$lib/stores/breadcrumb';
 	import type { Config, ApiError, Notifier, Credential, DanmakuUpdateMilestone } from '$lib/types';
@@ -98,8 +104,22 @@
 		try {
 			const response = await api.getConfig();
 			config = response.data;
-			formData = { ...config };
+			formData = {
+				media_index_webhook_enabled: false,
+				media_index_webhook_url: '',
+				media_index_webhook_token: '',
+				...config
+			};
+			if (!formData.storage_mode || formData.storage_mode === 'auto') {
+				formData.storage_mode = formData.cd2_url?.trim() ? 'cloud' : 'local';
+			}
 
+			formData.refresh_schedule ??= {
+				start: '',
+				end: '',
+				jitter_min_seconds: 0,
+				jitter_max_seconds: 0
+			};
 			// 根据 interval 的类型初始化输入框
 			if (typeof formData.interval === 'number') {
 				intervalInput = String(formData.interval);
@@ -229,54 +249,54 @@
 	}
 
 	onMount(() => {
-		setBreadcrumb([{ label: '设置' }]);
 		frontendToken = api.getAuthToken() || '';
 		loadConfig();
 	});
 </script>
 
 <svelte:head>
-	<title>设置 - Bili Sync</title>
+	<title>{section === 'cloud' ? '视频网盘分流' : '设置'} - Bili Sync</title>
 </svelte:head>
 
 <div class="space-y-6">
-	<!-- 前端认证状态栏 -->
-	<div class="bg-card rounded-lg border p-4">
-		<div class="flex items-center justify-between">
-			<div class="space-y-1">
-				<h2 class="font-semibold">前端认证状态</h2>
-				<p class="text-muted-foreground text-sm">
-					{formData ? '已认证 - 可以正常加载数据' : '未认证 - 请输入 Token 进行鉴权'}
-				</p>
-			</div>
-			{#if !formData}
-				<div class="flex gap-3">
-					<PasswordInput bind:value={frontendToken} placeholder="输入认证Token" />
-					<Button onclick={authenticateFrontend} disabled={!frontendToken.trim()}>认证</Button>
+	{#if section === 'auth'}
+		<!-- 前端认证状态栏 -->
+		<div class="bg-card rounded-lg border p-4">
+			<div class="flex items-center justify-between">
+				<div class="space-y-1">
+					<h2 class="font-semibold">前端认证状态</h2>
+					<p class="text-muted-foreground text-sm">
+						{formData ? '已认证 - 可以正常加载数据' : '未认证 - 请输入 Token 进行鉴权'}
+					</p>
 				</div>
-			{:else}
-				<div class="flex items-center gap-3">
-					<div class="flex items-center gap-2">
-						<div class="h-2 w-2 rounded-full bg-emerald-500"></div>
-						<span class="text-sm text-emerald-600">已认证</span>
+				{#if !formData}
+					<div class="flex gap-3">
+						<PasswordInput bind:value={frontendToken} placeholder="输入认证Token" />
+						<Button onclick={authenticateFrontend} disabled={!frontendToken.trim()}>认证</Button>
 					</div>
-					<Button
-						variant="outline"
-						size="sm"
-						onclick={() => {
-							formData = null;
-							config = null;
-							api.clearAuthToken();
-							frontendToken = '';
-						}}
-					>
-						退出认证
-					</Button>
-				</div>
-			{/if}
+				{:else}
+					<div class="flex items-center gap-3">
+						<div class="flex items-center gap-2">
+							<div class="h-2 w-2 rounded-full bg-emerald-500"></div>
+							<span class="text-sm text-emerald-600">已认证</span>
+						</div>
+						<Button
+							variant="outline"
+							size="sm"
+							onclick={() => {
+								formData = null;
+								config = null;
+								api.clearAuthToken();
+								frontendToken = '';
+							}}
+						>
+							退出认证
+						</Button>
+					</div>
+				{/if}
+			</div>
 		</div>
-	</div>
-
+	{/if}
 	<!-- 应用配置 -->
 	{#if loading}
 		<div class="flex items-center justify-center py-16">
@@ -289,16 +309,7 @@
 		</div>
 	{:else if formData}
 		<div class="space-y-6">
-			<Tabs.Root value="basic" class="w-full">
-				<Tabs.List class="grid w-full grid-cols-6">
-					<Tabs.Trigger value="basic">基本设置</Tabs.Trigger>
-					<Tabs.Trigger value="auth">B站认证</Tabs.Trigger>
-					<Tabs.Trigger value="filter">视频处理</Tabs.Trigger>
-					<Tabs.Trigger value="danmaku">弹幕渲染</Tabs.Trigger>
-					<Tabs.Trigger value="notifiers">通知设置</Tabs.Trigger>
-					<Tabs.Trigger value="advanced">高级设置</Tabs.Trigger>
-				</Tabs.List>
-
+			<Tabs.Root value={section} class="w-full">
 				<!-- 基本设置 -->
 				<Tabs.Content value="basic" class="mt-6 space-y-6">
 					<div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -413,6 +424,56 @@
 										</p>
 									</Tooltip.Content>
 								</Tooltip.Root>
+							</div>
+						</div>
+					</div>
+					<div class="space-y-4 rounded-xl border p-5">
+						<div>
+							<h3 class="font-semibold">自动刷新时间段</h3>
+							<p class="text-muted-foreground mt-1 text-sm">
+								按容器本地时区执行。留空或起止相同表示全天；支持跨午夜。手动刷新立即执行。
+							</p>
+						</div>
+						<div class="grid grid-cols-2 gap-4">
+							<div class="space-y-2">
+								<Label for="refresh-start">开始</Label><Input
+									id="refresh-start"
+									type="time"
+									bind:value={formData.refresh_schedule.start}
+								/>
+							</div>
+							<div class="space-y-2">
+								<Label for="refresh-end">结束</Label><Input
+									id="refresh-end"
+									type="time"
+									bind:value={formData.refresh_schedule.end}
+								/>
+							</div>
+						</div>
+						<div>
+							<h3 class="font-semibold">随机间隙</h3>
+							<p class="text-muted-foreground mt-1 text-sm">
+								每次自动触发后随机等待，再检查是否仍在时间段内。设置为 0 可关闭。
+							</p>
+						</div>
+						<div class="grid grid-cols-2 gap-4">
+							<div class="space-y-2">
+								<Label for="jitter-min">最短等待（秒）</Label><Input
+									id="jitter-min"
+									type="number"
+									min={0}
+									max={86400}
+									bind:value={formData.refresh_schedule.jitter_min_seconds}
+								/>
+							</div>
+							<div class="space-y-2">
+								<Label for="jitter-max">最长等待（秒）</Label><Input
+									id="jitter-max"
+									type="number"
+									min={0}
+									max={86400}
+									bind:value={formData.refresh_schedule.jitter_max_seconds}
+								/>
 							</div>
 						</div>
 					</div>
@@ -796,74 +857,6 @@
 							</div>
 						{/if}
 					</div>
-
-					<Separator />
-
-					<div class="space-y-4">
-						<div>
-							<h3 class="text-lg font-semibold">CloudDrive2 直传 115</h3>
-							<p class="text-muted-foreground text-sm">
-								填写三项后，新视频先下载到容器临时目录，再经 CD2 上传到
-								115。确认云端上传任务完成后才通知 MediaIndex；NFO 和图片仍保存在
-								/media。留空三项则保持原存储方式。
-							</p>
-						</div>
-						<div class="space-y-2">
-							<Label for="cd2-url">CD2 地址</Label>
-							<Input
-								id="cd2-url"
-								placeholder="http://clouddrive2:19798/"
-								bind:value={formData.cd2_url}
-							/>
-						</div>
-						<div class="space-y-2">
-							<Label for="cd2-token">CD2 API 令牌</Label>
-							<PasswordInput
-								id="cd2-token"
-								placeholder="粘贴 CD2 API 令牌"
-								bind:value={formData.cd2_token}
-							/>
-						</div>
-						<div class="space-y-2">
-							<Label for="cd2-save-path">115 保存根目录（CD2 内路径）</Label>
-							<Input
-								id="cd2-save-path"
-								placeholder="/115/媒体库/08Bilibili"
-								bind:value={formData.cd2_save_path}
-							/>
-							<p class="text-muted-foreground text-xs">
-								/media 下的相对目录会原样追加到这里；请与 MediaIndex 的 115 扫描根目录对应。
-							</p>
-						</div>
-					</div>
-
-					<Separator />
-
-					<div class="space-y-4">
-						<div>
-							<h3 class="text-lg font-semibold">MediaIndex 入库通知</h3>
-							<p class="text-muted-foreground text-sm">
-								视频下载完成后通知 MediaIndex 扫描预先指定的目录。地址和令牌均留空可关闭通知。
-							</p>
-						</div>
-						<div class="space-y-2">
-							<Label for="media-index-webhook-url">Webhook 地址</Label>
-							<Input
-								id="media-index-webhook-url"
-								placeholder="https://media.example.com/api/webhooks/..."
-								bind:value={formData.media_index_webhook_url}
-							/>
-						</div>
-						<div class="space-y-2">
-							<Label for="media-index-webhook-token">Webhook 令牌</Label>
-							<PasswordInput
-								id="media-index-webhook-token"
-								placeholder="粘贴 MediaIndex 入站连接的令牌"
-								bind:value={formData.media_index_webhook_token}
-							/>
-						</div>
-					</div>
-
 					<Separator />
 
 					<div class="flex items-center justify-between rounded-lg border p-4">
@@ -998,6 +991,156 @@
 						</div>
 					</div>
 				</Tabs.Content>
+				<Tabs.Content value="cloud" class="mt-6 space-y-6">
+					<h2 class="text-xl font-semibold">视频网盘分流</h2>
+					<div class="space-y-3 rounded-xl border p-5">
+						<Label for="storage-mode">新视频保存方式</Label>
+						<select
+							id="storage-mode"
+							class="w-full rounded-md border bg-background p-3"
+							bind:value={formData.storage_mode}
+						>
+							<option value="local">本地 · 视频和元数据保存在订阅目录</option>
+							<option value="cloud">CD2 · 视频上传网盘，元数据保存在本地</option>
+						</select>
+						<p class="text-sm text-muted-foreground">
+							切换只影响后续保存，不搬移已有视频。本地模式不需要网盘或 CD2，视频与
+							NFO、图片一起保存在原订阅路径。
+						</p>
+					</div>
+					{#if formData.storage_mode !== 'local'}
+						<!-- Independent 115 login is reserved for a future optional playback channel. -->
+						<div class="space-y-4">
+							<div>
+								<h3 class="text-lg font-semibold">CloudDrive2 网盘直传</h3>
+								<p class="text-muted-foreground text-sm">
+									填写三项后，新视频先下载到容器临时目录，再经 CD2 上传到所选网盘。使用 CD2
+									已登录的网盘 账号，无需再次扫码。确认上传完成后可通知 MediaIndex 生成 STRM；NFO
+									和图片仍保存在 /media。网盘分流模式需填写完整。
+								</p>
+							</div>
+							<div class="rounded-xl bg-muted/50 p-4 text-sm leading-relaxed text-muted-foreground">
+								<p>
+									CD2 官方支持 115、123 云盘、阿里云盘、天翼云盘、百度网盘、OneDrive 等。请选择已在
+									CD2 登录且允许上传的网盘，并确认 STRM 工具支持该网盘。
+								</p>
+								<p class="mt-2">
+									夸克暂未列入 CD2 官方支持列表。具体接入与上传能力以你安装的 CD2 版本为准。
+								</p>
+								<p class="mt-2 text-xs">
+									当前直传完成校验需要 CD2 返回云端文件 ID、大小和
+									SHA1；尚未逐一验证所有网盘。连接测试仅检查目录访问和容量，不代表上传及 STRM
+									链路已验证。
+								</p>
+								<a
+									class="mt-2 inline-block text-primary underline underline-offset-4"
+									href="https://www.clouddrive2.com/features.html"
+									target="_blank"
+									rel="noreferrer">查看 CD2 官方支持列表 ↗</a
+								>
+							</div>
+							<div class="space-y-2">
+								<Label for="cd2-url">CD2 地址</Label>
+								<Input
+									id="cd2-url"
+									placeholder="http://clouddrive2:19798/"
+									bind:value={formData.cd2_url}
+								/>
+							</div>
+							<div class="space-y-2">
+								<Label for="cd2-token">CD2 API 令牌</Label>
+								<PasswordInput
+									id="cd2-token"
+									placeholder="粘贴 CD2 API 令牌"
+									bind:value={formData.cd2_token}
+								/>
+							</div>
+							<div class="space-y-2">
+								<Label for="cd2-save-path">网盘保存根目录（CD2 内路径）</Label>
+								<Input
+									id="cd2-save-path"
+									placeholder="/媒体库/Bilibili"
+									bind:value={formData.cd2_save_path}
+								/>
+								<p class="text-muted-foreground text-xs">
+									/media 下的相对目录会原样追加到这里。路径以 API
+									令牌的授权根目录为准，不要重复添加网盘名称。
+								</p>
+							</div>
+						</div>
+
+						<Cd2Connection
+							url={formData.cd2_url}
+							token={formData.cd2_token}
+							path={formData.cd2_save_path}
+						/>
+
+						<div class="space-y-4 rounded-xl border p-5">
+							<div class="flex items-center justify-between gap-3">
+								<div>
+									<h3 class="font-semibold">STRM 入库联动</h3>
+									<p class="mt-1 text-sm text-muted-foreground">
+										CD2 确认上传完成后，通知 MediaIndex 生成 STRM。
+									</p>
+								</div>
+								<Switch
+									aria-label="启用 MediaIndex 通知"
+									bind:checked={formData.media_index_webhook_enabled}
+								/>
+							</div>
+							{#if formData.media_index_webhook_enabled}
+								<div class="space-y-2">
+									<Label for="media-index-url">MediaIndex Webhook URL</Label><Input
+										id="media-index-url"
+										bind:value={formData.media_index_webhook_url}
+										placeholder="粘贴 MediaIndex 生成的完整 URL"
+									/>
+								</div>
+								<div class="space-y-2">
+									<Label for="media-index-token">令牌（可选）</Label><Input
+										id="media-index-token"
+										type="password"
+										bind:value={formData.media_index_webhook_token}
+										placeholder="URL 已含 token 时可留空"
+									/>
+								</div>
+								<p class="text-xs leading-relaxed text-muted-foreground">
+									发送完成事件，扫描目录与 STRM 输出位置由 MediaIndex 的 Webhook
+									连接设置决定。请确保网盘目录与本地元数据目录的相对结构一致。失败通知会保留并在后续检查时重试。
+								</p>
+							{/if}
+							<div class="rounded-lg bg-muted/60 p-3 text-xs leading-relaxed text-muted-foreground">
+								没有 MediaIndex？可自行配置其他 STRM
+								工具，使用支持目标网盘的事件或定时增量扫描功能。115 用户可使用 MP 的 115STRM
+								插件，通过 115 生活事件扫描或定时增量扫描生成 STRM。bili-sync
+								负责上传视频和保存元数据，播放链接与播放服务由所选工具管理。
+							</div>
+						</div>
+					{/if}
+				</Tabs.Content>
+				<Tabs.Content value="appearance" class="mt-6 space-y-6">
+					<div>
+						<h2 class="text-xl font-semibold">选择你的颜色</h2>
+						<p class="text-muted-foreground mt-2 text-sm">立即生效，保存在当前浏览器中。</p>
+					</div>
+					<div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
+						{#each themes as theme (theme.id)}
+							<button
+								class="flex items-center gap-3 rounded-xl border p-4 text-left transition-colors hover:bg-accent"
+								class:ring-2={selectedTheme === theme.id}
+								aria-pressed={selectedTheme === theme.id}
+								onclick={() => {
+									selectedTheme = theme.id;
+									applyTheme(theme.id);
+								}}
+							>
+								<span class="size-6 rounded-full" style:background={theme.color}></span><span
+									>{theme.name}</span
+								>
+							</button>
+						{/each}
+					</div>
+				</Tabs.Content>
 			</Tabs.Root>
 
 			<div class="flex justify-end pt-6">
@@ -1009,7 +1152,8 @@
 	{:else}
 		<div class="flex items-center justify-center py-16">
 			<div class="space-y-4 text-center">
-				<p class="text-muted-foreground">请先进行前端认证以加载配置</p>
+				<p class="text-muted-foreground">请到 B 站账号页面完成前端认证以加载配置。</p>
+				<a href="/settings?section=auth" class="text-primary underline">前往 B 站账号</a>
 			</div>
 		</div>
 	{/if}

@@ -28,6 +28,19 @@ pub struct Cd2Client {
 
 impl Cd2Client {
     pub fn configured(config: &Config) -> Result<Option<Self>> {
+        if config.storage_mode == crate::config::StorageMode::Local {
+            return Ok(None);
+        }
+        let client = Self::connection(config)?;
+        ensure!(
+            config.storage_mode != crate::config::StorageMode::Cloud || client.is_some(),
+            "网盘分流需要配置 CD2 地址、令牌和保存路径"
+        );
+        Ok(client)
+    }
+
+    // Existing cloud files remain playable after changing the destination for new videos.
+    pub fn connection(config: &Config) -> Result<Option<Self>> {
         let url = config.cd2_url.trim();
         let token = config.cd2_token.trim();
         let save_path = config.cd2_save_path.trim();
@@ -68,6 +81,102 @@ impl Cd2Client {
         }))
     }
 
+    pub async fn space(&self) -> Result<SpaceInfo> {
+        self.call_one(
+            "GetSpaceInfo",
+            &FileRequest {
+                path: self.save_path.clone(),
+            },
+        )
+        .await
+    }
+
+    pub async fn download_url(&self, path: &str) -> Result<Url> {
+        let info: DownloadUrlPathInfo = self
+            .call_one(
+                "GetDownloadUrlPath",
+                &GetDownloadUrlPathRequest {
+                    path: path.to_owned(),
+                    preview: false,
+                    lazy_read: false,
+                    get_direct_url: false,
+                },
+            )
+            .await?;
+        let origin = self.url.origin().ascii_serialization();
+        let host = origin.split_once("://").context("CD2 host missing")?.1;
+        let download_path = info
+            .download_url_path
+            .replace("{SCHEME}", self.url.scheme())
+            .replace("{HOST}", host)
+            .replace("{PREVIEW}", "false");
+        let url = self.url.join(&download_path)?;
+        ensure!(url.origin() == self.url.origin(), "CD2 下载入口不是已配置的服务");
+        Ok(url)
+    }
+
+    pub async fn file_id(&self, path: &str) -> Result<String> {
+        let file: CloudDriveFile = self
+            .call_one(
+                "FindFileByPath",
+                &FindFileByPathRequest {
+                    parent_path: "/".into(),
+                    path: path.into(),
+                },
+            )
+            .await?;
+        ensure!(file.is_cloud_file && !file.id.is_empty(), "未确认云端文件标识");
+        Ok(file.id)
+    }
+    pub async fn existing_size(&self, path: &str) -> Result<u64> {
+        let file: CloudDriveFile = self
+            .call_one(
+                "FindFileByPath",
+                &FindFileByPathRequest {
+                    parent_path: "/".into(),
+                    path: path.into(),
+                },
+            )
+            .await?;
+        ensure!(
+            file.is_cloud_file && file.file_type == 1 && !file.id.is_empty() && file.size > 0,
+            "未确认云端视频存在"
+        );
+        ensure!(
+            !self
+                .upload_list()
+                .await?
+                .upload_files
+                .iter()
+                .any(|task| task.dest_path == path),
+            "视频仍在上传，请稍后核对"
+        );
+        Ok(file.size.try_into()?)
+    }
+
+    pub async fn download(&self, path: &str, range: Option<&str>, head: bool) -> Result<reqwest::Response> {
+        let url = self.download_url(path).await?;
+        // The CD2-generated file URL supplies scoped download authorization. Never forward the API token.
+        let client = Client::builder()
+            .no_proxy()
+            .connect_timeout(Duration::from_secs(30))
+            .read_timeout(Duration::from_secs(90))
+            .redirect(reqwest::redirect::Policy::limited(5))
+            .build()?;
+        let mut request = client.request(
+            if head {
+                reqwest::Method::HEAD
+            } else {
+                reqwest::Method::GET
+            },
+            url,
+        );
+        if let Some(range) = range {
+            request = request.header(reqwest::header::RANGE, range);
+        }
+        Ok(request.send().await?)
+    }
+
     pub fn remote_path(&self, metadata_file: &Path) -> Result<String> {
         let relative = metadata_file
             .strip_prefix(&self.metadata_root)
@@ -86,6 +195,48 @@ impl Cd2Client {
             }
         }
         Ok(output)
+    }
+
+    /// Resolve an exact child from a refreshed directory listing, never treating lookup errors as absence.
+    pub async fn confirmed_id(&self, path: &str) -> Result<Option<String>> {
+        let (parent, name) = path.rsplit_once('/').context("invalid cloud path")?;
+        let files = self.list_directory(parent, true).await?;
+        match files.into_iter().find(|f| f.name == name) {
+            Some(file) => {
+                ensure!(file.is_cloud_file && !file.id.is_empty(), "云端文件尚未确认，停止替换");
+                Ok(Some(file.id))
+            }
+            None => Ok(None),
+        }
+    }
+
+    pub async fn rename_confirmed(&self, path: &str, new_name: &str, expected_id: &str) -> Result<()> {
+        ensure!(
+            !new_name.is_empty() && !new_name.contains('/') && !new_name.contains('\\'),
+            "无效的新文件名"
+        );
+        let parent = path.rsplit_once('/').context("invalid cloud path")?.0;
+        let target = format!("{parent}/{new_name}");
+        ensure!(
+            self.confirmed_id(path).await?.as_deref() == Some(expected_id),
+            "云端源文件身份变化，停止替换"
+        );
+        ensure!(self.confirmed_id(&target).await?.is_none(), "云端目标已存在，停止替换");
+        let result: FileOperationResult = self
+            .call_one(
+                "RenameFile",
+                &RenameFileRequest {
+                    path: path.into(),
+                    new_name: new_name.into(),
+                },
+            )
+            .await?;
+        ensure!(result.success, "CD2 重命名未确认成功，替换日志已保留");
+        ensure!(
+            self.confirmed_id(&target).await?.as_deref() == Some(expected_id),
+            "CD2 重命名后文件身份未确认，稍后恢复"
+        );
+        Ok(())
     }
 
     pub async fn upload(&self, local_file: &Path, metadata_file: &Path) -> Result<()> {
@@ -476,6 +627,14 @@ struct FileOperationResult {
     #[prost(string, tag = "2")]
     error_message: String,
 }
+// CloudDrive.proto: RenameFileRequest.theFilePath=1, newName=2.
+#[derive(Clone, PartialEq, Message)]
+struct RenameFileRequest {
+    #[prost(string, tag = "1")]
+    path: String,
+    #[prost(string, tag = "2")]
+    new_name: String,
+}
 #[derive(Clone, PartialEq, Message)]
 struct CreateFileRequest {
     #[prost(string, tag = "1")]
@@ -619,13 +778,73 @@ mod tests {
     }
 
     #[test]
+    fn local_mode_ignores_retained_cloud_settings() {
+        let config = Config {
+            storage_mode: crate::config::StorageMode::Local,
+            cd2_url: "retained old address".into(),
+            ..Config::default()
+        };
+        assert!(Cd2Client::configured(&config).unwrap().is_none());
+    }
+
+    #[test]
+    fn cloud_mode_requires_connection_settings() {
+        let config = Config {
+            storage_mode: crate::config::StorageMode::Cloud,
+            ..Config::default()
+        };
+        assert!(Cd2Client::configured(&config).is_err());
+    }
+
+    #[test]
     fn old_config_without_cd2_fields_stays_disabled() {
         let mut saved = serde_json::to_value(Config::default()).unwrap();
         let fields = saved.as_object_mut().unwrap();
+        fields.remove("storage_mode");
         fields.remove("cd2_url");
         fields.remove("cd2_token");
         fields.remove("cd2_save_path");
         let loaded: Config = serde_json::from_value(saved).unwrap();
         assert!(Cd2Client::configured(&loaded).unwrap().is_none());
     }
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct GetDownloadUrlPathRequest {
+    #[prost(string, tag = "1")]
+    path: String,
+    #[prost(bool, tag = "2")]
+    preview: bool,
+    #[prost(bool, tag = "3")]
+    lazy_read: bool,
+    #[prost(bool, tag = "4")]
+    get_direct_url: bool,
+}
+#[derive(Clone, PartialEq, Message)]
+struct DownloadUrlPathInfo {
+    #[prost(string, tag = "1")]
+    download_url_path: String,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct FileRequest {
+    #[prost(string, tag = "1")]
+    path: String,
+}
+#[derive(Clone, PartialEq, Message, serde::Serialize)]
+pub struct SpaceInfo {
+    #[prost(int64, tag = "1")]
+    pub total: i64,
+    #[prost(int64, tag = "2")]
+    pub used: i64,
+    #[prost(int64, tag = "3")]
+    pub free: i64,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct FindFileByPathRequest {
+    #[prost(string, tag = "1")]
+    parent_path: String,
+    #[prost(string, tag = "2")]
+    path: String,
 }

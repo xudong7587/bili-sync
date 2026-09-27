@@ -1,32 +1,26 @@
 services:
   bili-sync-rs:
-    # 建议固定到已发布的版本；升级时修改此标签。
-    image: ghcr.io/xudong7587/bili-sync:bili115-2026.09.26.3
+    # 固定版本便于升级和回滚；新版本发布后再修改标签。
+    image: ghcr.io/xudong7587/bili-sync:bili115-2026.09.27.1
     container_name: bili-sync-rs
     restart: unless-stopped
 
-    # 管理页面默认使用 12345 端口。若原配置改过监听端口，请同步修改这里。
+    # 原配置若修改了监听端口，请同步调整。
     ports:
       - "12345:12345"
-
-    # 如需让写入的文件归指定用户所有，可取消注释并改成宿主机的 UID:GID。
+    # 可选：按宿主机权限填写 UID:GID。
     # user: "1000:1000"
-
     environment:
       TZ: Asia/Shanghai
-      # 原有挂载写入模式：两个变量必须同时设置，订阅路径仍填写 /media/...。
-      # 启用 CD2 直传后可继续保留这些映射，但新 MP4 不会写入 /video。
-      BILI_SYNC_METADATA_ROOT: /media
-      BILI_SYNC_VIDEO_ROOT: /video
-      # MediaIndex 的 Webhook 地址和令牌在管理页的「设置 → 通知设置」中填写。
-
     volumes:
-      # 将下面三个宿主机示例路径改成自己的实际路径。
-      # 升级已有实例时，第一项应指向原实例的配置目录，以继承数据库和设置。
+      # 升级时沿用原配置目录，继承账号、数据库、订阅与下载状态。
       - /path/to/bili-sync-config:/app/.config/bili-sync
-      # 本地磁盘：NFO、海报、字幕等元数据；Emby 读取此目录。
-      - /path/to/local-metadata:/media
-      # 原有挂载写入模式的视频目录；CD2 直传模式不需要写入此目录。
-      - /path/to/video-storage:/video
-      # 可选：如果原实例单独映射了 UP 主头像目录，请沿用原映射及配置中的目标路径。
+      # 本地模式：视频和元数据；CD2 模式：仅元数据，视频经 CD2 上传。
+      - /path/to/local-library:/media
+      # 可选：原实例若单独映射 UP 主头像目录，请沿用原映射。
       # - /path/to/emby/metadata/people:/app/.config/bili-sync/upper_face
+
+    # 在「视频网盘分流」选择本地或 CD2。
+    # CD2 地址、API 令牌、网盘保存路径及 MediaIndex 通知都在网页设置中填写。
+    # CD2 模式无需 /video 挂载。旧实例的其他挂载可保留，不会自动搬移已有视频。
+    # 下载、合并和上传期间需要本地临时空间；至少容纳并发处理的视频。

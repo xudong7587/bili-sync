@@ -54,6 +54,7 @@ export class WebSocketManager {
 
 	// 连接 WebSocket
 	public connect(): Promise<void> {
+		if (!api.getAuthToken()) return Promise.resolve();
 		if (this.connected) return Promise.resolve();
 		if (this.connectionPromise) return this.connectionPromise;
 
@@ -121,6 +122,7 @@ export class WebSocketManager {
 	}
 
 	private async sendMessage(message: ClientEvent): Promise<void> {
+		if (!api.getAuthToken()) return;
 		if (!this.connected) {
 			await this.connect();
 		}
@@ -151,6 +153,9 @@ export class WebSocketManager {
 	}
 
 	private async resubscribeEvents(): Promise<void> {
+		if (this.logsSubscribers.size) this.subscribedEvents.add(EventType.Logs);
+		if (this.tasksSubscribers.size) this.subscribedEvents.add(EventType.Tasks);
+		if (this.sysInfoSubscribers.size) this.subscribedEvents.add(EventType.SysInfo);
 		await Promise.all(
 			Array.from(this.subscribedEvents).map(async (eventType) => {
 				await this.sendMessage({ subscribe: eventType });
@@ -173,7 +178,7 @@ export class WebSocketManager {
 
 		this.reconnectTimer = setTimeout(() => {
 			this.reconnectAttempts++;
-			this.connect();
+			void this.connect().catch(() => {});
 		}, delay);
 	}
 
@@ -181,13 +186,13 @@ export class WebSocketManager {
 		this.logsSubscribers.add(callback);
 
 		if (this.logsSubscribers.size === 1) {
-			this.subscribe(EventType.Logs);
+			void this.subscribe(EventType.Logs).catch(() => {});
 		}
 
 		return () => {
 			this.logsSubscribers.delete(callback);
 			if (this.logsSubscribers.size === 0) {
-				this.unsubscribe(EventType.Logs);
+				void this.unsubscribe(EventType.Logs).catch(() => {});
 			}
 		};
 	}
@@ -197,13 +202,13 @@ export class WebSocketManager {
 		this.tasksSubscribers.add(callback);
 
 		if (this.tasksSubscribers.size === 1) {
-			this.subscribe(EventType.Tasks);
+			void this.subscribe(EventType.Tasks).catch(() => {});
 		}
 
 		return () => {
 			this.tasksSubscribers.delete(callback);
 			if (this.tasksSubscribers.size === 0) {
-				this.unsubscribe(EventType.Tasks);
+				void this.unsubscribe(EventType.Tasks).catch(() => {});
 			}
 		};
 	}
@@ -212,13 +217,13 @@ export class WebSocketManager {
 		this.sysInfoSubscribers.add(callback);
 
 		if (this.sysInfoSubscribers.size === 1) {
-			this.subscribe(EventType.SysInfo);
+			void this.subscribe(EventType.SysInfo).catch(() => {});
 		}
 
 		return () => {
 			this.sysInfoSubscribers.delete(callback);
 			if (this.sysInfoSubscribers.size === 0) {
-				this.unsubscribe(EventType.SysInfo);
+				void this.unsubscribe(EventType.SysInfo).catch(() => {});
 			}
 		};
 	}
@@ -255,6 +260,7 @@ export class WebSocketManager {
 
 	public disconnect(): void {
 		if (this.socket) {
+			this.socket.onclose = null;
 			this.socket.close();
 			this.socket = null;
 		}

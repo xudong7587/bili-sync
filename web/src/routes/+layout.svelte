@@ -1,5 +1,9 @@
 <script lang="ts">
 	import '../app.css';
+	import LogDialog from '$lib/components/log-dialog.svelte';
+	import { onMount } from 'svelte';
+	import { applyTheme, getTheme } from '$lib/theme';
+	onMount(() => applyTheme(getTheme()));
 	import AppSidebar from '$lib/components/app-sidebar.svelte';
 	import BreadCrumb from '$lib/components/bread-crumb.svelte';
 	import { Separator } from '$lib/components/ui/separator/index.js';
@@ -13,16 +17,17 @@
 <Toaster position="top-center" duration={3000} />
 <Sidebar.Provider>
 	<AppSidebar />
-	<Sidebar.Inset class="flex flex-col" style="height: calc(100vh - 1rem)">
+	<Sidebar.Inset class="flex min-w-0 flex-col" style="height: calc(100vh - 1rem)">
 		<header class="flex h-16 shrink-0 items-center gap-2">
 			<div class="flex items-center gap-2 px-4">
 				<Sidebar.Trigger class="-ml-1" />
 				<Separator orientation="vertical" class="mr-2 data-[orientation=vertical]:h-4" />
 				<BreadCrumb items={$breadcrumbStore} />
 			</div>
+			<div class="ml-auto pr-5"><LogDialog /></div>
 		</header>
 		<div
-			class="w-full overflow-y-auto px-6 py-2"
+			class="min-w-0 w-full overflow-y-auto px-6 py-2"
 			style="scrollbar-width: thin; scrollbar-gutter: stable !important;"
 			id="main"
 		>

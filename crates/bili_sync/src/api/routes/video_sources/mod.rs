@@ -193,9 +193,15 @@ pub async fn get_video_sources_default_path(
         _ => return Err(InnerApiError::BadRequest("Invalid video source type".to_string()).into()),
     };
     let template = TEMPLATE.read();
-    Ok(ApiResponse::ok(
-        template.path_safe_render(template_name, &serde_json::to_value(params)?)?,
-    ))
+    let rendered = template.path_safe_render(template_name, &serde_json::to_value(params)?)?;
+    // Legacy templates may omit the root. Keep explicitly configured absolute paths.
+    let path = if FsPath::new(&rendered).is_absolute() {
+        rendered
+    } else {
+        let root = std::env::var("BILI_SYNC_METADATA_ROOT").unwrap_or_else(|_| "/media".to_owned());
+        FsPath::new(&root).join(rendered).to_string_lossy().into_owned()
+    };
+    Ok(ApiResponse::ok(path))
 }
 
 /// 更新视频来源
@@ -274,6 +280,8 @@ pub async fn remove_video_source(
     Path((source_type, id)): Path<(String, i32)>,
     Extension(db): Extension<DatabaseConnection>,
 ) -> Result<ApiResponse<bool>, ApiError> {
+    let _guard = crate::task::DownloadTaskManager::get().try_library_lock()?;
+    crate::library::cloud_replace::ensure_no_pending().await?;
     // 不允许删除稍后再看
     let video_source: Option<VideoSourceEnum> = match source_type.as_str() {
         "collections" => collection::Entity::find_by_id(id).one(&db).await?.map(Into::into),
@@ -386,6 +394,8 @@ pub async fn full_sync_video_source(
     Extension(bili_client): Extension<Arc<BiliClient>>,
     Json(request): Json<FullSyncVideoSourceRequest>,
 ) -> Result<ApiResponse<FullSyncVideoSourceResponse>, ApiError> {
+    let _guard = crate::task::DownloadTaskManager::get().try_library_lock()?;
+    crate::library::cloud_replace::ensure_no_pending().await?;
     let video_source: Option<VideoSourceEnum> = match source_type.as_str() {
         "collections" => collection::Entity::find_by_id(id).one(&db).await?.map(Into::into),
         "favorites" => favorite::Entity::find_by_id(id).one(&db).await?.map(Into::into),
@@ -473,7 +483,9 @@ pub async fn insert_favorite(
         f_id: Set(favorite_info.id),
         name: Set(favorite_info.title.clone()),
         path: Set(request.path),
-        enabled: Set(false),
+        enabled: Set(request.enabled),
+        rule: Set(request.rule),
+        filter_option: Set(request.filter_option.map(serde_json::to_value).transpose()?),
         ..Default::default()
     })
     .exec(&db)
@@ -504,7 +516,9 @@ pub async fn insert_collection(
         r#type: Set(collection_info.collection_type.into()),
         name: Set(collection_info.name.clone()),
         path: Set(request.path),
-        enabled: Set(false),
+        enabled: Set(request.enabled),
+        rule: Set(request.rule),
+        filter_option: Set(request.filter_option.map(serde_json::to_value).transpose()?),
         ..Default::default()
     })
     .exec(&db)
@@ -526,7 +540,9 @@ pub async fn insert_submission(
         upper_id: Set(upper.mid.parse()?),
         upper_name: Set(upper.name),
         path: Set(request.path),
-        enabled: Set(false),
+        enabled: Set(request.enabled),
+        rule: Set(request.rule),
+        filter_option: Set(request.filter_option.map(serde_json::to_value).transpose()?),
         ..Default::default()
     })
     .exec(&db)

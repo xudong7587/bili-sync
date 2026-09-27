@@ -12,6 +12,8 @@ import type {
 	InsertCollectionRequest,
 	InsertFavoriteRequest,
 	InsertSubmissionRequest,
+	LibraryJob,
+	LibraryRow,
 	Notifier,
 	QrcodePollResponse as PollQrcodeResponse,
 	ResetFilteredVideosResponse,
@@ -59,6 +61,8 @@ class ApiClient {
 		if (token) {
 			this.defaultHeaders['Authorization'] = token;
 			localStorage.setItem('authToken', token);
+			wsManager.disconnect();
+			void wsManager.connect().catch(() => {});
 		} else {
 			delete this.defaultHeaders['Authorization'];
 			localStorage.removeItem('authToken');
@@ -223,6 +227,48 @@ class ApiClient {
 		return this.get<UppersResponse>('/me/uppers', params as Record<string, unknown>);
 	}
 
+	async libraryVideos(params: Record<string, unknown>) {
+		return this.get<{ rows: LibraryRow[]; total: number }>('/library/videos', params);
+	}
+	async libraryStart(page_ids: number[], action: string) {
+		return this.post<boolean>('/library/jobs', { page_ids, action });
+	}
+	async libraryJob() {
+		return this.get<LibraryJob>('/library/jobs');
+	}
+
+	async storageSummary(metric: 'count' | 'bytes' = 'count') {
+		return this.get<{ name: string; bytes: number; count: number; unknown_count: number }[]>(
+			`/dashboard/storage?metric=${metric}`
+		);
+	}
+
+	async cloudSpace(connection?: { url: string; token: string; path: string }) {
+		if (connection) return this.post<{ free: number; total: number }>('/cloud/space', connection);
+		return this.get<{ total: number; used: number; free: number }>('/cloud/space');
+	}
+	async cloudLoginStart(client_id: string, channel: string) {
+		return this.post<boolean>('/cloud/login', { client_id, channel });
+	}
+	async cloudLoginState() {
+		return this.get<{
+			running: boolean;
+			error: string | null;
+			authorized: boolean;
+			channel: string;
+			qrcode: string;
+			status: string;
+		}>('/cloud/login');
+	}
+
+	async cloudAccountCheck() {
+		return this.post<boolean>('/cloud/account/check');
+	}
+
+	async searchUppers(keyword: string, page = 1): Promise<ApiResponse<UppersResponse>> {
+		return this.get<UppersResponse>('/uppers/search', { keyword, page });
+	}
+
 	async insertFavorite(request: InsertFavoriteRequest): Promise<ApiResponse<boolean>> {
 		return this.post<boolean>('/video-sources/favorites', request);
 	}
@@ -326,6 +372,19 @@ const api = {
 	getCreatedFavorites: () => apiClient.getCreatedFavorites(),
 	getFollowedCollections: (pageNum?: number, pageSize?: number) =>
 		apiClient.getFollowedCollections(pageNum, pageSize),
+	libraryVideos: (params: Record<string, unknown>) => apiClient.libraryVideos(params),
+	libraryStart: (ids: number[], action: string) => apiClient.libraryStart(ids, action),
+	libraryJob: () => apiClient.libraryJob(),
+
+	storageSummary: (metric: 'count' | 'bytes' = 'count') => apiClient.storageSummary(metric),
+	cloudSpace: (connection?: { url: string; token: string; path: string }) =>
+		apiClient.cloudSpace(connection),
+	cloudAccountCheck: () => apiClient.cloudAccountCheck(),
+	cloudLoginStart: (client_id: string, channel: string) =>
+		apiClient.cloudLoginStart(client_id, channel),
+	cloudLoginState: () => apiClient.cloudLoginState(),
+
+	searchUppers: (keyword: string, page = 1) => apiClient.searchUppers(keyword, page),
 	getFollowedUppers: (pageNum?: number, pageSize?: number, name?: string) =>
 		apiClient.getFollowedUppers(pageNum, pageSize, name),
 	insertFavorite: (request: InsertFavoriteRequest) => apiClient.insertFavorite(request),

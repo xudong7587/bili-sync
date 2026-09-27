@@ -23,8 +23,20 @@ pub struct VideosResponse {
 
 #[derive(Serialize)]
 pub struct VideoResponse {
+    pub metadata: Option<VideoMetadata>,
     pub video: VideoInfo,
     pub pages: Vec<PageInfo>,
+}
+
+#[derive(Serialize, DerivePartialModel, FromQueryResult)]
+#[sea_orm(entity = "video::Entity")]
+pub struct VideoMetadata {
+    pub upper_id: i64,
+    pub upper_face: String,
+    pub intro: String,
+    pub path: String,
+    pub pubtime: DateTime,
+    pub tags: Option<bili_sync_entity::string_vec::StringVec>,
 }
 
 #[derive(Serialize)]
@@ -70,6 +82,8 @@ pub struct VideoSource {
 #[derive(Serialize, DerivePartialModel, FromQueryResult)]
 #[sea_orm(entity = "video::Entity")]
 pub struct VideoInfo {
+    pub created_at: String,
+    pub favtime: DateTime,
     pub id: i32,
     pub bvid: String,
     pub name: String,
@@ -82,6 +96,7 @@ pub struct VideoInfo {
     pub favorite_id: Option<i32>,
     pub submission_id: Option<i32>,
     pub watch_later_id: Option<i32>,
+    pub cover: String,
 }
 
 #[derive(Serialize, DerivePartialModel, FromQueryResult)]
@@ -197,6 +212,7 @@ pub struct DashBoardResponse {
 
 #[derive(Serialize, Clone, Copy)]
 pub struct SysInfo {
+    pub download_bytes: u64,
     pub timestamp: i64,
     pub total_memory: u64,
     pub used_memory: u64,

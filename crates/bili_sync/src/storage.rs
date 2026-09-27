@@ -54,6 +54,13 @@ impl StorageLayout {
     }
 
     pub fn video_path_for(metadata_path: &Path) -> Result<PathBuf> {
+        Self::video_path_for_mode(metadata_path, crate::config::VersionedConfig::get().read().storage_mode)
+    }
+
+    pub fn video_path_for_mode(metadata_path: &Path, mode: crate::config::StorageMode) -> Result<PathBuf> {
+        if mode != crate::config::StorageMode::Auto {
+            return Ok(metadata_path.to_path_buf());
+        }
         match Self::from_env()? {
             Some(layout) => layout.video_path(metadata_path),
             None => Ok(metadata_path.to_path_buf()),
@@ -84,6 +91,14 @@ pub async fn remove_video_files(metadata_path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explicit_storage_modes_do_not_require_legacy_video_mount() {
+        let metadata = Path::new("/media/收藏夹/视频.mp4");
+        for mode in [crate::config::StorageMode::Local, crate::config::StorageMode::Cloud] {
+            assert_eq!(StorageLayout::video_path_for_mode(metadata, mode).unwrap(), metadata);
+        }
+    }
 
     #[test]
     fn maps_existing_media_paths_to_video_mount() {

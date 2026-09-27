@@ -1,0 +1,491 @@
+//! Manual, bounded quality checks and verified replacement jobs.
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, LazyLock};
+
+use anyhow::{Context, Result, ensure};
+use bili_sync_entity::{page, video};
+use parking_lot::Mutex;
+use sea_orm::EntityTrait;
+use serde::{Deserialize, Serialize};
+
+use crate::bilibili::{BestStream, BiliClient, PageInfo, Stream, Video, VideoQuality};
+use crate::config::{CONFIG_DIR, Config, VersionedConfig};
+use crate::library::{self, FileReceipt, SavedQuality};
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub struct Comparison {
+    #[serde(default)]
+    pub video_id: Option<i32>,
+    #[serde(default)]
+    pub cid: Option<i64>,
+    pub checked_at: String,
+    pub current: SavedQuality,
+    pub candidate: SavedQuality,
+    pub upgradeable: bool,
+    pub message: String,
+}
+impl Comparison {
+    fn matches(&self, receipt: &FileReceipt) -> bool {
+        self.video_id == Some(receipt.video_id) && self.cid == Some(receipt.cid) && self.current == receipt.quality
+    }
+}
+#[derive(Deserialize)]
+pub struct BatchRequest {
+    pub page_ids: Vec<i32>,
+    pub action: String,
+}
+#[derive(Clone, Default, Serialize)]
+pub struct JobState {
+    pub running: bool,
+    pub total: usize,
+    pub completed: usize,
+    pub results: Vec<JobResult>,
+}
+#[derive(Clone, Serialize)]
+pub struct JobResult {
+    pub page_id: i32,
+    pub success: bool,
+    pub message: String,
+}
+static JOB: LazyLock<Mutex<JobState>> = LazyLock::new(|| Mutex::new(JobState::default()));
+pub fn status() -> JobState {
+    JOB.lock().clone()
+}
+fn comparison_path(id: i32) -> PathBuf {
+    CONFIG_DIR.join("quality").join(format!("{id}.json"))
+}
+pub async fn load_comparison(id: i32, receipt: Option<&FileReceipt>) -> Result<Option<Comparison>> {
+    match tokio::fs::read(comparison_path(id)).await {
+        Ok(bytes) => {
+            let comparison: Comparison = serde_json::from_slice(&bytes)?;
+            Ok(receipt.filter(|r| comparison.matches(r)).map(|_| comparison))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}
+fn fps(value: &Option<String>) -> Option<f64> {
+    let value = value.as_ref()?;
+    if let Some((a, b)) = value.split_once('/') {
+        let b: f64 = b.parse().ok()?;
+        if b == 0.0 {
+            None
+        } else {
+            Some(a.parse::<f64>().ok()? / b)
+        }
+    } else {
+        value.parse().ok()
+    }
+}
+/// QN alone is insufficient: HDR, codecs and frame rate are not a linear quality scale.
+fn improves(old: &SavedQuality, new: &SavedQuality) -> bool {
+    let (Some(ow), Some(oh), Some(nw), Some(nh)) = (old.width, old.height, new.width, new.height) else {
+        return false;
+    };
+    let old_short = ow.min(oh);
+    let new_short = nw.min(nh);
+    if new_short > old_short {
+        return true;
+    }
+    if nw != ow || nh != oh || old.codec.is_none() || old.codec != new.codec {
+        return false;
+    }
+    let (Some(of), Some(nf)) = (fps(&old.frame_rate), fps(&new.frame_rate)) else {
+        return false;
+    };
+    if nf > of + 5.0 {
+        return true;
+    }
+    nf + 0.1 >= of
+        && old
+            .bitrate
+            .zip(new.bitrate)
+            .is_some_and(|(o, n)| o > 0 && n as f64 > o as f64 * 1.10)
+}
+fn verified(old: &SavedQuality, new: &SavedQuality) -> bool {
+    let duration_ok = old
+        .duration
+        .zip(new.duration)
+        .is_some_and(|(o, n)| o > 0.0 && (o - n).abs() <= (o * 0.01).max(3.0));
+    duration_ok && improves(old, new)
+}
+
+pub async fn start(db: sea_orm::DatabaseConnection, client: Arc<BiliClient>, mut request: BatchRequest) -> Result<()> {
+    ensure!(
+        matches!(request.action.as_str(), "check" | "upgrade" | "notify" | "strm"),
+        "未知画质操作"
+    );
+    request.page_ids.sort_unstable();
+    request.page_ids.dedup();
+    ensure!(
+        !request.page_ids.is_empty() && request.page_ids.len() <= 25,
+        "每批请选择 1–25 个视频分 P"
+    );
+    let guard = crate::task::DownloadTaskManager::get().try_library_lock()?;
+    {
+        let mut job = JOB.lock();
+        ensure!(!job.running, "上一批任务尚未完成");
+        *job = JobState {
+            running: true,
+            total: request.page_ids.len(),
+            ..Default::default()
+        };
+    }
+    tokio::spawn(async move {
+        let _guard = guard;
+        let config = VersionedConfig::get().snapshot();
+        if let Err(error) = library::cloud_replace::recover(&config).await {
+            let mut job = JOB.lock();
+            job.running = false;
+            job.results.push(JobResult {
+                page_id: request.page_ids[0],
+                success: false,
+                message: format!("云端替换待恢复：{error:#}"),
+            });
+            return;
+        }
+        if request.action != "strm" && request.action != "notify" {
+            let setup = async {
+                let key = client
+                    .wbi_img(&config.credential)
+                    .await?
+                    .into_mixin_key()
+                    .context("无法获取 WBI 签名")?;
+                crate::bilibili::set_global_mixin_key(key);
+                Result::<()>::Ok(())
+            }
+            .await;
+            if let Err(error) = setup {
+                let mut job = JOB.lock();
+                job.running = false;
+                job.results.push(JobResult {
+                    page_id: request.page_ids[0],
+                    success: false,
+                    message: format!("画质检查初始化失败：{error:#}"),
+                });
+                return;
+            }
+        }
+        for id in request.page_ids {
+            let result = process(&db, &client, &config, id, &request.action).await;
+            let risk_control = result
+                .as_ref()
+                .err()
+                .and_then(|error| error.downcast_ref::<crate::bilibili::BiliError>())
+                .is_some_and(|error| error.is_risk_control_related());
+            {
+                let mut job = JOB.lock();
+                job.completed += 1;
+                job.results.push(JobResult {
+                    page_id: id,
+                    success: result.is_ok(),
+                    message: result.unwrap_or_else(|e| format!("{e:#}")),
+                });
+            }
+            if risk_control {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        }
+        if let Err(error) = crate::media_index::flush_pending().await {
+            JOB.lock().results.push(JobResult {
+                page_id: 0,
+                success: false,
+                message: format!("视频已保留，MediaIndex 通知待重试：{error:#}"),
+            });
+        }
+        JOB.lock().running = false;
+    });
+    Ok(())
+}
+
+async fn baseline(video: &video::Model, page: &page::Model, config: &Config) -> Result<FileReceipt> {
+    if let Some(mut receipt) = library::load(video.id, page.cid).await? {
+        if receipt.cloud {
+            let cd2 = crate::cd2::Cd2Client::connection(config)?.context("CD2 未配置")?;
+            let id = cd2.file_id(&receipt.storage_path).await?;
+            ensure!(
+                receipt.cloud_file_id.as_ref().is_none_or(|saved| saved == &id),
+                "云端文件身份已变化，请核对现有记录"
+            );
+            let bytes = cd2.existing_size(&receipt.storage_path).await?;
+            ensure!(
+                receipt.bytes == 0 || receipt.bytes == bytes,
+                "云端文件大小已变化，请核对现有记录"
+            );
+            receipt.cloud_file_id = Some(id);
+            receipt.bytes = bytes;
+            library::save(&receipt).await?;
+        }
+        if receipt.quality.width.is_none() || receipt.quality.duration.is_none() {
+            let target = if receipt.cloud {
+                let cd2 = crate::cd2::Cd2Client::connection(config)?.context("CD2 未配置")?;
+                cd2.download_url(&receipt.storage_path).await?.to_string()
+            } else {
+                receipt.storage_path.clone()
+            };
+            receipt.quality = library::probe(Path::new(&target), receipt.quality.clone()).await?;
+            library::save(&receipt).await?;
+        }
+        return Ok(receipt);
+    }
+    let metadata = PathBuf::from(page.path.as_ref().context("尚未保存视频路径")?);
+    let (storage_path, cloud, bytes, quality) = if metadata.is_file() {
+        (
+            metadata.to_string_lossy().into_owned(),
+            false,
+            tokio::fs::metadata(&metadata).await?.len(),
+            library::probe(&metadata, SavedQuality::default()).await?,
+        )
+    } else if let Some(cd2) = crate::cd2::Cd2Client::configured(config)? {
+        // Explicit manual checks inspect only the selected file, never a recursive directory scan.
+        let path = cd2.remote_path(&metadata)?;
+        let bytes = cd2.existing_size(&path).await?;
+        let url = cd2.download_url(&path).await?;
+        let quality = library::probe(Path::new(url.as_str()), SavedQuality::default()).await?;
+        (path, true, bytes, quality)
+    } else {
+        let local = crate::storage::StorageLayout::video_path_for(&metadata)?;
+        ensure!(local.is_file(), "找不到已保存视频，无法确认实际画质");
+        (
+            local.to_string_lossy().into_owned(),
+            false,
+            tokio::fs::metadata(&local).await?.len(),
+            library::probe(&local, SavedQuality::default()).await?,
+        )
+    };
+    let cloud_file_id = if cloud {
+        Some(
+            crate::cd2::Cd2Client::connection(config)?
+                .context("CD2 未配置")?
+                .file_id(&storage_path)
+                .await?,
+        )
+    } else {
+        None
+    };
+    let receipt = FileReceipt {
+        video_id: video.id,
+        cid: page.cid,
+        storage_path,
+        cloud,
+        cloud_file_id,
+        bytes,
+        metadata_path: metadata,
+        quality,
+        uploaded_at: String::new(),
+        playback_token: uuid::Uuid::new_v4().simple().to_string(),
+    };
+    library::save(&receipt).await?;
+    Ok(receipt)
+}
+
+async fn candidate(
+    client: &BiliClient,
+    config: &Config,
+    video: &video::Model,
+    page: &page::Model,
+) -> Result<(BestStream, SavedQuality)> {
+    let bili = Video::new(client, &video.bvid, &config.credential);
+    let info = PageInfo {
+        cid: page.cid,
+        duration: page.duration,
+        ..Default::default()
+    };
+    let mut analyzer = bili.get_page_analyzer(&info).await?;
+    let details = analyzer.info.clone();
+    let mut filter = config.filter_option.clone();
+    filter.video_max_quality = VideoQuality::Quality8k;
+    let streams = analyzer.best_stream(&filter)?;
+    let mut quality = SavedQuality::default();
+    if let BestStream::VideoAudio {
+        video: Stream::DashVideo { quality: qn, url, .. },
+        ..
+    } = &streams
+    {
+        quality.qn = Some(qn.clone() as u32);
+        if let Some(stream) = details["dash"]["video"]
+            .as_array()
+            .and_then(|list| list.iter().find(|item| item["baseUrl"].as_str() == Some(url.as_str())))
+        {
+            quality.width = stream["width"].as_u64().map(|n| n as u32);
+            quality.height = stream["height"].as_u64().map(|n| n as u32);
+            quality.bitrate = stream["bandwidth"].as_u64();
+            quality.frame_rate = stream["frameRate"].as_str().map(str::to_owned);
+            quality.codec = stream["codecid"].as_u64().and_then(|n| match n {
+                7 => Some("h264".into()),
+                12 => Some("hevc".into()),
+                13 => Some("av1".into()),
+                _ => None,
+            });
+        }
+    }
+    quality.duration = Some(page.duration as f64);
+    Ok((streams, quality))
+}
+
+async fn process(
+    db: &sea_orm::DatabaseConnection,
+    client: &BiliClient,
+    config: &Config,
+    id: i32,
+    action: &str,
+) -> Result<String> {
+    let page = page::Entity::find_by_id(id).one(db).await?.context("分 P 不存在")?;
+    let video = video::Entity::find_by_id(page.video_id)
+        .one(db)
+        .await?
+        .context("视频不存在")?;
+    ensure!(((page.download_status >> 3) & 7) == 7, "视频尚未下载完成");
+    if action == "notify" || action == "strm" {
+        ensure!(
+            config.media_index_webhook_enabled && !config.media_index_webhook_url.trim().is_empty(),
+            "请先在网盘分流中配置 MediaIndex Webhook"
+        );
+        let receipt = library::load(video.id, page.cid)
+            .await?
+            .context("暂无上传记录，请先比对确认云端视频")?;
+        ensure!(receipt.cloud, "本地视频无需生成 STRM");
+        crate::media_index::mark_pending().await?;
+        return Ok("已加入 MediaIndex 通知队列".into());
+    }
+    let old = baseline(&video, &page, config).await?;
+    let (streams, proposed) = candidate(client, config, &video, &page).await?;
+    let mut comparison = Comparison {
+        video_id: Some(video.id),
+        cid: Some(page.cid),
+        checked_at: chrono::Utc::now().to_rfc3339(),
+        current: old.quality.clone(),
+        candidate: proposed.clone(),
+        upgradeable: improves(&old.quality, &proposed),
+        message: String::new(),
+    };
+    comparison.message = if comparison.upgradeable {
+        "可升级；升级时将再次验证实际文件"
+    } else {
+        "未找到可确认的提升，保留当前版本"
+    }
+    .into();
+    tokio::fs::create_dir_all(CONFIG_DIR.join("quality")).await?;
+    library::atomic_write(&comparison_path(id), &serde_json::to_vec(&comparison)?).await?;
+    if action == "check" {
+        return Ok(comparison.message);
+    }
+    ensure!(comparison.upgradeable, "当前账号可获取的视频流没有可确认的画质提升");
+    let downloader = crate::downloader::Downloader::new(client.client.clone());
+    let limit = &config.concurrent_limit.download;
+    let temporary = match streams {
+        BestStream::Mixed(stream)
+        | BestStream::VideoAudio {
+            video: stream,
+            audio: None,
+        } => {
+            downloader
+                .multi_fetch_to_temp(&stream.urls(config.cdn_sorting), limit)
+                .await?
+        }
+        BestStream::VideoAudio {
+            video,
+            audio: Some(audio),
+        } => {
+            downloader
+                .multi_fetch_and_merge_to_temp(&video.urls(config.cdn_sorting), &audio.urls(config.cdn_sorting), limit)
+                .await?
+        }
+    };
+    let result = async {
+        let actual = library::probe(temporary.file_path(), proposed).await?;
+        ensure!(
+            verified(&old.quality, &actual),
+            "候选文件的时长或画质未通过验证，保留原视频"
+        );
+        let mut new = old.clone();
+        new.quality = actual;
+        new.bytes = tokio::fs::metadata(temporary.file_path()).await?.len();
+        new.uploaded_at = chrono::Utc::now().to_rfc3339();
+        if old.cloud {
+            library::cloud_replace::replace(temporary.file_path(), &old, &mut new, config).await?;
+        } else {
+            library::local_replace::replace(temporary.file_path(), &old, &new).await?;
+        }
+        comparison.current = new.quality;
+        comparison.upgradeable = false;
+        comparison.message = "升级完成，已保留旧版本".into();
+        library::atomic_write(&comparison_path(id), &serde_json::to_vec(&comparison)?).await?;
+        Ok(comparison.message)
+    }
+    .await;
+    temporary.drop_async().await;
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn quality() -> SavedQuality {
+        SavedQuality {
+            width: Some(1920),
+            height: Some(1080),
+            duration: Some(120.0),
+            codec: Some("h264".into()),
+            bitrate: Some(1_000_000),
+            frame_rate: Some("30/1".into()),
+            ..Default::default()
+        }
+    }
+    #[test]
+    fn comparison_cannot_be_reused_after_page_id_recycling_or_file_replacement() {
+        let mut receipt = FileReceipt {
+            video_id: 12,
+            cid: 34,
+            metadata_path: PathBuf::new(),
+            storage_path: String::new(),
+            cloud: false,
+            cloud_file_id: None,
+            bytes: 1,
+            quality: quality(),
+            uploaded_at: String::new(),
+            playback_token: String::new(),
+        };
+        let comparison = Comparison {
+            video_id: Some(12),
+            cid: Some(34),
+            current: quality(),
+            ..Default::default()
+        };
+        assert!(comparison.matches(&receipt));
+        receipt.video_id = 13;
+        assert!(!comparison.matches(&receipt));
+        receipt.video_id = 12;
+        receipt.cid = 35;
+        assert!(!comparison.matches(&receipt));
+        receipt.cid = 34;
+        receipt.quality.height = Some(2160);
+        assert!(!comparison.matches(&receipt));
+        assert!(!Comparison::default().matches(&receipt));
+    }
+    #[test]
+    fn rejects_codec_only_and_duration_regression() {
+        let old = quality();
+        let mut new = old.clone();
+        new.codec = Some("hevc".into());
+        new.bitrate = Some(2_000_000);
+        assert!(!verified(&old, &new));
+        new.width = Some(3840);
+        new.height = Some(2160);
+        assert!(verified(&old, &new));
+        new.duration = Some(60.0);
+        assert!(!verified(&old, &new));
+    }
+    #[test]
+    fn same_codec_requires_real_bitrate_or_fps_improvement() {
+        let old = quality();
+        let mut new = old.clone();
+        new.bitrate = Some(1_050_000);
+        assert!(!verified(&old, &new));
+        new.bitrate = Some(1_200_000);
+        assert!(verified(&old, &new));
+        new.frame_rate = Some("24/1".into());
+        assert!(!verified(&old, &new));
+    }
+}

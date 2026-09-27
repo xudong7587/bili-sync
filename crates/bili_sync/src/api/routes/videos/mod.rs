@@ -22,8 +22,8 @@ use crate::api::request::{
 };
 use crate::api::response::{
     ClearAndResetVideoStatusResponse, PageInfo, ResetFilteredVideosResponse, ResetVideoResponse, SimplePageInfo,
-    SimpleVideoInfo, UpdateFilteredVideoStatusResponse, UpdateVideoStatusResponse, VideoInfo, VideoResponse,
-    VideosResponse,
+    SimpleVideoInfo, UpdateFilteredVideoStatusResponse, UpdateVideoStatusResponse, VideoInfo, VideoMetadata,
+    VideoResponse, VideosResponse,
 };
 use crate::api::wrapper::{ApiError, ApiResponse, ValidatedJson};
 use crate::storage::remove_video_files;
@@ -99,9 +99,32 @@ pub async fn get_videos(
     } else {
         (0, 10)
     };
+    query = match params.sort.as_deref() {
+        Some("added_desc") => query
+            .order_by_desc(video::Column::CreatedAt)
+            .order_by_desc(video::Column::Id),
+        Some("added_asc") => query
+            .order_by_asc(video::Column::CreatedAt)
+            .order_by_asc(video::Column::Id),
+        Some("title_desc") => query
+            .order_by_desc(video::Column::Name)
+            .order_by_desc(video::Column::Id),
+        Some("upper") => query
+            .order_by_asc(video::Column::UpperName)
+            .order_by_desc(video::Column::Id),
+        Some("upper_desc") => query
+            .order_by_desc(video::Column::UpperName)
+            .order_by_desc(video::Column::Id),
+        Some("title") => query.order_by_asc(video::Column::Name).order_by_desc(video::Column::Id),
+        Some("oldest") => query
+            .order_by_asc(video::Column::Favtime)
+            .order_by_asc(video::Column::Id),
+        _ => query
+            .order_by_desc(video::Column::Favtime)
+            .order_by_desc(video::Column::Id),
+    };
     Ok(ApiResponse::ok(VideosResponse {
         videos: query
-            .order_by_desc(video::Column::Id)
             .into_partial_model::<VideoInfo>()
             .paginate(&db, page_size)
             .fetch_page(page)
@@ -126,6 +149,10 @@ pub async fn get_video(
         return Err(InnerApiError::NotFound(id).into());
     };
     Ok(ApiResponse::ok(VideoResponse {
+        metadata: video::Entity::find_by_id(id)
+            .into_partial_model::<VideoMetadata>()
+            .one(&db)
+            .await?,
         video: video_info,
         pages: pages_info,
     }))
@@ -194,6 +221,8 @@ pub async fn clear_and_reset_video_status(
     Path(id): Path<i32>,
     Extension(db): Extension<DatabaseConnection>,
 ) -> Result<ApiResponse<ClearAndResetVideoStatusResponse>, ApiError> {
+    let _guard = crate::task::DownloadTaskManager::get().try_library_lock()?;
+    crate::library::cloud_replace::ensure_no_pending().await?;
     let video_info = video::Entity::find_by_id(id).one(&db).await?;
     let Some(video_info) = video_info else {
         return Err(InnerApiError::NotFound(id).into());
@@ -210,6 +239,9 @@ pub async fn clear_and_reset_video_status(
         .await?;
     txn.commit().await?;
     let video_info = video_info.try_into_model()?;
+    crate::library::invalidate_video(id)
+        .await
+        .context("清空重置的保存记录失效失败，请重试")?;
     let warning = if video_info.path.is_empty() {
         None
     } else {
@@ -222,6 +254,9 @@ pub async fn clear_and_reset_video_status(
     Ok(ApiResponse::ok(ClearAndResetVideoStatusResponse {
         warning,
         video: VideoInfo {
+            created_at: video_info.created_at.clone(),
+            favtime: video_info.favtime,
+            cover: video_info.cover.clone(),
             id: video_info.id,
             bvid: video_info.bvid,
             name: video_info.name,

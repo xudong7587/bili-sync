@@ -23,6 +23,7 @@ pub enum ValidationFilter {
 
 #[derive(Deserialize)]
 pub struct VideosRequest {
+    pub sort: Option<String>,
     pub collection: Option<i32>,
     pub favorite: Option<i32>,
     pub submission: Option<i32>,
@@ -119,6 +120,10 @@ pub struct InsertFavoriteRequest {
     pub fid: i64,
     #[validate(custom(function = "crate::utils::validation::validate_path"))]
     pub path: String,
+    #[serde(default)]
+    pub enabled: bool,
+    pub rule: Option<Rule>,
+    pub filter_option: Option<FilterOption>,
 }
 
 #[derive(Deserialize, Validate)]
@@ -129,6 +134,10 @@ pub struct InsertCollectionRequest {
     pub collection_type: CollectionType,
     #[validate(custom(function = "crate::utils::validation::validate_path"))]
     pub path: String,
+    #[serde(default)]
+    pub enabled: bool,
+    pub rule: Option<Rule>,
+    pub filter_option: Option<FilterOption>,
 }
 
 #[derive(Deserialize, Validate)]
@@ -136,6 +145,10 @@ pub struct InsertSubmissionRequest {
     pub upper_id: i64,
     #[validate(custom(function = "crate::utils::validation::validate_path"))]
     pub path: String,
+    #[serde(default)]
+    pub enabled: bool,
+    pub rule: Option<Rule>,
+    pub filter_option: Option<FilterOption>,
 }
 
 #[derive(Deserialize, Validate)]

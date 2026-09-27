@@ -1,528 +1,263 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui/card/index.js';
-	import { Progress } from '$lib/components/ui/progress/index.js';
-	import { Badge } from '$lib/components/ui/badge/index.js';
-	import { Button } from '$lib/components/ui/button/index.js';
-	import * as Chart from '$lib/components/ui/chart/index.js';
-	import MyChartTooltip from '$lib/components/custom/my-chart-tooltip.svelte';
-	import { curveNatural } from 'd3-shape';
-	import { BarChart, AreaChart } from 'layerchart';
+	import CircleHelp from '@lucide/svelte/icons/circle-help';
+	import api from '$lib/api';
+	import type { SysInfo, TaskStatus, ApiError } from '$lib/types';
+	import { Button } from '$lib/components/ui/button';
+	import VideoWall from '$lib/components/video-wall.svelte';
+	import LiveChart from '$lib/components/live-chart.svelte';
 	import { setBreadcrumb } from '$lib/stores/breadcrumb';
 	import { toast } from 'svelte-sonner';
-	import CloudDownloadIcon from '@lucide/svelte/icons/cloud-download';
-	import api from '$lib/api';
-	import type { DashBoardResponse, SysInfo, ApiError, TaskStatus } from '$lib/types';
-	import CalendarIcon from '@lucide/svelte/icons/calendar';
-	import CircleCheckBigIcon from '@lucide/svelte/icons/circle-check-big';
-	import ClockIcon from '@lucide/svelte/icons/clock';
-	import CpuIcon from '@lucide/svelte/icons/cpu';
-	import DatabaseIcon from '@lucide/svelte/icons/database';
-	import DownloadIcon from '@lucide/svelte/icons/download';
-	import FolderIcon from '@lucide/svelte/icons/folder';
-	import HardDriveIcon from '@lucide/svelte/icons/hard-drive';
-	import HeartIcon from '@lucide/svelte/icons/heart';
-	import MemoryStickIcon from '@lucide/svelte/icons/memory-stick';
-	import PlayIcon from '@lucide/svelte/icons/play';
-	import UserIcon from '@lucide/svelte/icons/user';
-	import VideoIcon from '@lucide/svelte/icons/video';
-
-	let dashboardData = $state<DashBoardResponse | null>(null);
-	let sysInfo = $state<SysInfo | null>(null);
-	let taskStatus = $state<TaskStatus | null>(null);
-	let loading = $state(false);
+	let system = $state<SysInfo | null>(null);
+	let task = $state<TaskStatus | null>(null);
+	let history = $state<{ cpu: number; memory: number; speed: number }[]>([]);
+	let folders = $state<{ name: string; bytes: number; count: number; unknown_count: number }[]>([]);
+	let storageError = $state('');
+	let metric = $state<'count' | 'bytes'>('count');
+	let storageLoading = $state(false);
+	let storageSequence = 0;
+	const unknown = $derived(folders.reduce((sum, f) => sum + (f.unknown_count || 0), 0));
+	const measure = (f: { count: number; bytes: number }) => (metric === 'count' ? f.count : f.bytes);
 	let triggering = $state(false);
-	let memoryHistory = $state<Array<{ time: number; used: number; process: number }>>([]);
-	let cpuHistory = $state<Array<{ time: number; used: number; process: number }>>([]);
-	let unsubscribeSysInfo: (() => void) | null = null;
-	let unsubscribeTasks: (() => void) | null = null;
-
-	function formatBytes(bytes: number): string {
-		if (bytes === 0) return '0 B';
-		const k = 1024;
-		const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-		const i = Math.floor(Math.log(bytes) / Math.log(k));
-		return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+	const colors = ['var(--primary)', '#a78bfa', '#f59e0b', '#fb7185', '#38bdf8', '#94a3b8'];
+	const total = $derived(folders.reduce((sum, f) => sum + measure(f), 0));
+	const count = $derived(folders.reduce((sum, f) => sum + f.count, 0));
+	const speed = $derived(history.at(-1)?.speed || 0);
+	const pie = $derived.by(() => {
+		let angle = 0;
+		return folders
+			.map((f, i) => {
+				const start = angle;
+				angle += total ? (measure(f) / total) * 360 : 0;
+				return `${colors[i % colors.length]} ${start}deg ${angle}deg`;
+			})
+			.join(',');
+	});
+	function bytes(n: number) {
+		if (!Number.isFinite(n) || n <= 0) return '0 B';
+		const i = Math.min(4, Math.floor(Math.log(n) / Math.log(1024)));
+		return `${(n / 1024 ** i).toFixed(i ? 1 : 0)} ${['B', 'KB', 'MB', 'GB', 'TB'][i]}`;
 	}
-
-	function formatCpu(cpu: number): string {
-		return `${cpu.toFixed(1)}%`;
+	function time(value: string | Date | null) {
+		return value
+			? new Date(value).toLocaleString('zh-CN', {
+					month: '2-digit',
+					day: '2-digit',
+					hour: '2-digit',
+					minute: '2-digit'
+				})
+			: '—';
 	}
-
-	function formatTimestamp(timestamp: number): string {
-		return new Date(timestamp).toLocaleString('en-US', {
-			hour: '2-digit',
-			minute: '2-digit',
-			second: '2-digit',
-			hour12: true
-		});
-	}
-
-	async function loadDashboard() {
-		loading = true;
+	async function storage() {
+		const sequence = ++storageSequence;
+		storageLoading = true;
 		try {
-			const response = await api.getDashboard();
-			dashboardData = response.data;
-		} catch (error) {
-			console.error('加载仪表盘数据失败：', error);
-			toast.error('加载仪表盘数据失败', {
-				description: (error as ApiError).message
-			});
+			const data = (await api.storageSummary(metric)).data;
+			if (sequence !== storageSequence) return;
+			folders = data;
+			storageError = '';
+		} catch (e) {
+			if (sequence === storageSequence) storageError = (e as ApiError).message;
 		} finally {
-			loading = false;
+			if (sequence === storageSequence) storageLoading = false;
 		}
 	}
-
-	async function handleTriggerDownload() {
+	async function trigger() {
 		triggering = true;
 		try {
 			await api.triggerDownloadTask();
-			toast.success('已触发下载任务', {
-				description: '任务将立即开始执行'
-			});
-		} catch (error) {
-			console.error('触发下载任务失败：', error);
-			toast.error('触发下载任务失败', {
-				description: (error as ApiError).message
-			});
+			toast.success('已安排检查更新');
+		} catch (e) {
+			toast.error((e as ApiError).message);
 		} finally {
 			triggering = false;
 		}
 	}
-
-	const videoChartConfig = {
-		videos: {
-			label: '视频数量',
-			color: 'var(--primary)'
-		}
-	} satisfies Chart.ChartConfig;
-
-	const memoryChartConfig = {
-		used: {
-			label: '整体占用',
-			color: 'var(--primary)'
-		},
-		process: {
-			label: '程序占用',
-			color: 'oklch(from var(--primary) calc(l * 0.6) c h)'
-		}
-	} satisfies Chart.ChartConfig;
-
-	const cpuChartConfig = {
-		used: {
-			label: '整体占用',
-			color: 'var(--primary)'
-		},
-		process: {
-			label: '程序占用',
-			color: 'oklch(from var(--primary) calc(l * 0.6) c h)'
-		}
-	} satisfies Chart.ChartConfig;
-
-	function pushSysInfo(data: SysInfo) {
-		memoryHistory = [
-			...memoryHistory.slice(-14),
-			{
-				time: data.timestamp,
-				used: data.used_memory,
-				process: data.process_memory
-			}
-		];
-		cpuHistory = [
-			...cpuHistory.slice(-14),
-			{
-				time: data.timestamp,
-				used: data.used_cpu,
-				process: data.process_cpu
-			}
-		];
-	}
-
-	const diskUsagePercent = $derived(
-		sysInfo ? ((sysInfo.total_disk - sysInfo.available_disk) / sysInfo.total_disk) * 100 : 0
-	);
-
 	onMount(() => {
 		setBreadcrumb([{ label: '仪表盘' }]);
-
-		unsubscribeSysInfo = api.subscribeToSysInfo((data) => {
-			sysInfo = data;
-			pushSysInfo(data);
+		const stopSystem = api.subscribeToSysInfo((data) => {
+			const seconds = system ? (data.timestamp - system.timestamp) / 1000 : 0;
+			const currentSpeed =
+				system && seconds > 0
+					? Math.max(0, data.download_bytes - system.download_bytes) / seconds
+					: 0;
+			history = [
+				...history.slice(-59),
+				{
+					cpu: data.used_cpu,
+					memory: data.total_memory ? (data.used_memory / data.total_memory) * 100 : 0,
+					speed: currentSpeed
+				}
+			];
+			system = data;
 		});
-		unsubscribeTasks = api.subscribeToTasks((data: TaskStatus) => {
-			taskStatus = data;
+		const stopTasks = api.subscribeToTasks((data) => {
+			task = data;
 		});
-		loadDashboard();
+		void storage();
+		const timer = setInterval(storage, 60000);
 		return () => {
-			if (unsubscribeSysInfo) {
-				unsubscribeSysInfo();
-				unsubscribeSysInfo = null;
-			}
-			if (unsubscribeTasks) {
-				unsubscribeTasks();
-				unsubscribeTasks = null;
-			}
+			stopSystem();
+			stopTasks();
+			clearInterval(timer);
 		};
 	});
 </script>
 
-<svelte:head>
-	<title>仪表盘 - Bili Sync</title>
-</svelte:head>
-
-<div class="space-y-6">
-	{#if loading}
-		<div class="flex items-center justify-center py-12">
-			<div class="text-muted-foreground">加载中...</div>
-		</div>
-	{:else}
-		<div class="grid gap-4 md:grid-cols-3">
-			<Card class="md:col-span-1">
-				<CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
-					<CardTitle class="text-sm font-medium">存储空间</CardTitle>
-					<HardDriveIcon class="text-muted-foreground h-4 w-4" />
-				</CardHeader>
-				<CardContent>
-					{#if sysInfo}
-						<div class="space-y-2">
-							<div class="flex items-center justify-between">
-								<div class="text-2xl font-bold">{formatBytes(sysInfo.available_disk)} 可用</div>
-								<div class="text-muted-foreground text-sm">
-									共 {formatBytes(sysInfo.total_disk)}
-								</div>
-							</div>
-							<Progress value={diskUsagePercent} class="h-2" />
-							<div class="text-muted-foreground text-xs">
-								已使用 {diskUsagePercent.toFixed(1)}% 的存储空间
-							</div>
-						</div>
-					{:else}
-						<div class="text-muted-foreground text-sm">加载中...</div>
-					{/if}
-				</CardContent>
-			</Card>
-			<Card class="md:col-span-2">
-				<CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
-					<CardTitle class="text-sm font-medium">当前监听</CardTitle>
-					<DatabaseIcon class="text-muted-foreground h-4 w-4" />
-				</CardHeader>
-				<CardContent>
-					{#if dashboardData}
-						<div class="grid grid-cols-2 gap-4">
-							<div class="flex items-center justify-between">
-								<div class="flex items-center gap-2">
-									<HeartIcon class="text-muted-foreground h-4 w-4" />
-									<span class="text-sm">收藏夹</span>
-								</div>
-								<Badge variant="outline">{dashboardData.enabled_favorites}</Badge>
-							</div>
-							<div class="flex items-center justify-between">
-								<div class="flex items-center gap-2">
-									<FolderIcon class="text-muted-foreground h-4 w-4" />
-									<span class="text-sm">合集 / 列表</span>
-								</div>
-								<Badge variant="outline">{dashboardData.enabled_collections}</Badge>
-							</div>
-							<div class="flex items-center justify-between">
-								<div class="flex items-center gap-2">
-									<UserIcon class="text-muted-foreground h-4 w-4" />
-									<span class="text-sm">投稿</span>
-								</div>
-								<Badge variant="outline">{dashboardData.enabled_submissions}</Badge>
-							</div>
-							<div class="flex items-center justify-between">
-								<div class="flex items-center gap-2">
-									<ClockIcon class="text-muted-foreground h-4 w-4" />
-									<span class="text-sm">稍后再看</span>
-								</div>
-								<Badge variant="outline">
-									{dashboardData.enable_watch_later ? '启用' : '禁用'}
-								</Badge>
-							</div>
-						</div>
-					{:else}
-						<div class="text-muted-foreground text-sm">加载中...</div>
-					{/if}
-				</CardContent>
-			</Card>
-		</div>
-
-		<div class="grid gap-4 md:grid-cols-3">
-			<Card class="max-w-full overflow-hidden md:col-span-2">
-				<CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
-					<CardTitle class="text-sm font-medium">最近入库</CardTitle>
-					<VideoIcon class="text-muted-foreground h-4 w-4" />
-				</CardHeader>
-				<CardContent>
-					{#if dashboardData && dashboardData.videos_by_day.length > 0}
-						<div class="mb-4 space-y-2">
-							<div class="flex items-center justify-between text-sm">
-								<span>近七日新增视频</span>
-								<span class="font-medium"
-									>{dashboardData.videos_by_day.reduce((sum, v) => sum + v.cnt, 0)} 个</span
-								>
-							</div>
-						</div>
-						<Chart.Container config={videoChartConfig} class="h-[200px] w-full">
-							<BarChart
-								data={dashboardData.videos_by_day}
-								x="day"
-								axis="x"
-								series={[
-									{
-										key: 'cnt',
-										label: '新增视频',
-										color: videoChartConfig.videos.color
-									}
-								]}
-								props={{
-									bars: {
-										stroke: 'none',
-										rounded: 'all',
-										radius: 8,
-										initialHeight: 0
-									},
-									highlight: { area: { fill: 'none' } },
-									xAxis: { format: () => '' }
-								}}
-							>
-								{#snippet tooltip({ context })}
-									<MyChartTooltip {context} indicator="line" />
-								{/snippet}
-							</BarChart>
-						</Chart.Container>
-					{:else}
-						<div class="text-muted-foreground flex h-[200px] items-center justify-center text-sm">
-							暂无视频统计数据
-						</div>
-					{/if}</CardContent
+<svelte:head><title>仪表盘 - Bili Sync</title></svelte:head>
+<div class="space-y-8 pb-8">
+	<div class="flex justify-end">
+		<Button variant="outline" onclick={trigger} disabled={triggering || task?.is_running}
+			>{triggering ? '正在安排…' : task?.is_running ? '任务运行中' : '立即检查更新'}</Button
+		>
+	</div>
+	<div class="grid gap-4 xl:grid-cols-3">
+		<section class="rounded-xl border bg-card p-5">
+			<div class="flex items-center justify-between">
+				<h2 class="font-semibold">下载状态</h2>
+				<span class="text-primary text-xs"
+					>{task ? (task.is_running ? '正在处理' : '等待下次更新') : '连接中'}</span
 				>
-			</Card>
-			<Card class="max-w-full md:col-span-1">
-				<CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
-					<CardTitle class="text-sm font-medium">下载任务状态</CardTitle>
-					<CloudDownloadIcon class="text-muted-foreground h-4 w-4" />
-				</CardHeader>
-				<CardContent>
-					{#if taskStatus}
-						<div class="space-y-4">
-							<div class="grid grid-cols-1 gap-6">
-								<div class="mb-4 space-y-2">
-									<div class="flex items-center justify-between text-sm">
-										<span>当前任务状态</span>
-										<Badge variant={taskStatus.is_running ? 'default' : 'outline'}>
-											{taskStatus.is_running ? '运行中' : '未运行'}
-										</Badge>
-									</div>
-								</div>
-								<div class="flex items-center justify-between">
-									<div class="flex items-center gap-2">
-										<PlayIcon class="text-muted-foreground h-4 w-4" />
-										<span class="text-sm">开始运行</span>
-									</div>
-									<span class="text-muted-foreground text-sm">
-										{taskStatus.last_run
-											? new Date(taskStatus.last_run).toLocaleString('en-US', {
-													month: '2-digit',
-													day: '2-digit',
-													hour: '2-digit',
-													minute: '2-digit',
-													second: '2-digit',
-													hour12: true
-												})
-											: '-'}
-									</span>
-								</div>
-								<div class="flex items-center justify-between">
-									<div class="flex items-center gap-2">
-										<CircleCheckBigIcon class="text-muted-foreground h-4 w-4" />
-										<span class="text-sm">运行结束</span>
-									</div>
-									<span class="text-muted-foreground text-sm">
-										{taskStatus.last_finish
-											? new Date(taskStatus.last_finish).toLocaleString('en-US', {
-													month: '2-digit',
-													day: '2-digit',
-													hour: '2-digit',
-													minute: '2-digit',
-													second: '2-digit',
-													hour12: true
-												})
-											: '-'}
-									</span>
-								</div>
-								<div class="flex items-center justify-between">
-									<div class="flex items-center gap-2">
-										<CalendarIcon class="text-muted-foreground h-4 w-4" />
-										<span class="text-sm">下次运行</span>
-									</div>
-									<span class="text-muted-foreground text-sm">
-										{taskStatus.next_run
-											? new Date(taskStatus.next_run).toLocaleString('en-US', {
-													month: '2-digit',
-													day: '2-digit',
-													hour: '2-digit',
-													minute: '2-digit',
-													second: '2-digit',
-													hour12: true
-												})
-											: '-'}
-									</span>
-								</div>
-							</div>
-							<div class="mt-6 border-t pt-4">
-								<Button
-									class="w-full"
-									size="sm"
-									onclick={handleTriggerDownload}
-									disabled={triggering || (taskStatus?.is_running ?? false)}
-								>
-									<DownloadIcon class="h-4 w-4" />
-									{triggering
-										? '触发中...'
-										: taskStatus?.is_running
-											? '任务运行中'
-											: '立即执行下载任务'}
-								</Button>
-							</div>
-						</div>
-					{:else}
-						<div class="text-muted-foreground text-sm">加载中...</div>
-					{/if}
-				</CardContent>
-			</Card>
-		</div>
-
-		<!-- 第三行：系统监控 -->
-		<div class="grid gap-4 md:grid-cols-2">
-			<!-- 内存使用情况 -->
-			<Card class="overflow-hidden">
-				<CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
-					<CardTitle class="text-sm font-medium">内存使用情况</CardTitle>
-					<MemoryStickIcon class="text-muted-foreground h-4 w-4" />
-				</CardHeader>
-				<CardContent>
-					{#if sysInfo}
-						<div class="mb-4 space-y-2">
-							<div class="flex items-center justify-between text-sm">
-								<span>当前内存使用</span>
-								<span class="font-medium"
-									>{formatBytes(sysInfo.used_memory)} / {formatBytes(sysInfo.total_memory)}</span
-								>
-							</div>
-						</div>
-					{/if}
-					{#if memoryHistory.length > 0}
-						<Chart.Container config={memoryChartConfig} class="h-[150px] w-full">
-							<AreaChart
-								data={memoryHistory}
-								x="time"
-								axis="x"
-								series={[
-									{
-										key: 'used',
-										label: memoryChartConfig.used.label,
-										color: memoryChartConfig.used.color
-									},
-									{
-										key: 'process',
-										label: memoryChartConfig.process.label,
-										color: memoryChartConfig.process.color
-									}
-								]}
-								props={{
-									area: {
-										curve: curveNatural,
-										line: { class: 'stroke-1' },
-										'fill-opacity': 0.4
-									},
-									xAxis: {
-										format: () => ''
-									}
-								}}
+			</div>
+			<p class="mt-5 text-4xl font-semibold tracking-tight tabular-nums">
+				{bytes(speed)}<span class="text-muted-foreground ml-1 text-base font-normal">/s</span>
+			</p>
+			<p class="text-muted-foreground mt-1 text-xs">bili-sync 视频下载速度</p>
+			<LiveChart
+				data={history.map((h) => h.speed / 1024 ** 2)}
+				label="最近两分钟视频下载速度"
+				unit="MB/s"
+			/>
+			<div class="text-muted-foreground mt-4 flex flex-wrap justify-between gap-2 text-xs">
+				<span>上次完成 {time(task?.last_finish || null)}</span><span
+					>下次检查 {time(task?.next_run || null)}</span
+				>
+			</div>
+		</section>
+		<section class="rounded-xl border bg-card p-5">
+			<h2 class="font-semibold">运行资源</h2>
+			<div class="mt-5 flex gap-7">
+				<div>
+					<p class="text-muted-foreground text-xs">CPU</p>
+					<p class="text-primary text-2xl font-semibold tabular-nums">
+						{system ? system.used_cpu.toFixed(1) : '—'}%
+					</p>
+				</div>
+				<div>
+					<p class="text-muted-foreground text-xs">内存</p>
+					<p class="text-2xl font-semibold text-amber-600 tabular-nums">
+						{system?.total_memory
+							? ((system.used_memory / system.total_memory) * 100).toFixed(1)
+							: '—'}%
+					</p>
+				</div>
+			</div>
+			<LiveChart
+				data={history.map((h) => h.cpu)}
+				second={history.map((h) => h.memory)}
+				ceiling={100}
+				label="CPU 主题色与内存橙色占用百分比"
+				unit="%"
+			/>
+			<p class="text-muted-foreground mt-4 text-xs">
+				内存 {system
+					? `${bytes(system.used_memory)} / ${bytes(system.total_memory)}`
+					: '等待监控数据'} · 两秒刷新
+			</p>
+		</section>
+		<section class="rounded-xl border bg-card p-5">
+			<div class="flex justify-between">
+				<h2 class="font-semibold">视频分布</h2>
+				<div class="flex items-center gap-2">
+					<div class="flex rounded-md bg-muted p-0.5" aria-label="统计方式">
+						{#each [['count', '个数'], ['bytes', '大小']] as [value, label] (value)}
+							<button
+								class="rounded px-2 py-1 text-xs"
+								class:bg-background={metric === value}
+								class:shadow-sm={metric === value}
+								aria-pressed={metric === value}
+								onclick={() => {
+									metric = value as 'count' | 'bytes';
+									folders = [];
+									void storage();
+								}}>{label}</button
 							>
-								{#snippet tooltip({ context })}
-									<MyChartTooltip
-										{context}
-										labelFormatter={(timestamp: number) => {
-											return formatTimestamp(timestamp);
-										}}
-										valueFormatter={(v: number) => formatBytes(v)}
-										indicator="line"
-									/>
-								{/snippet}
-							</AreaChart>
-						</Chart.Container>
-					{:else}
-						<div class="text-muted-foreground flex h-[200px] items-center justify-center text-sm">
-							等待数据...
+						{/each}
+					</div>
+					<details class="relative">
+						<summary
+							class="cursor-pointer list-none text-muted-foreground"
+							aria-label="视频分布统计说明"><CircleHelp class="size-4" /></summary
+						>
+						<div
+							class="absolute right-0 top-7 z-20 w-72 rounded-lg border bg-popover p-3 text-xs leading-relaxed text-popover-foreground shadow-lg"
+						>
+							个数来自本地数据库。大小读取本地视频文件或已有的网盘上传、比对记录，不遍历网盘。<br
+							/><br />
+							网盘旧视频未登记大小时显示「暂无数据」，需先在媒体库中手动选择视频进行比对。画质比对会请求
+							B 站，批量过大或频繁操作可能触发风控，请分批执行。
 						</div>
-					{/if}
-				</CardContent>
-			</Card>
-
-			<Card class="overflow-hidden">
-				<CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
-					<CardTitle class="text-sm font-medium">CPU 使用情况</CardTitle>
-					<CpuIcon class="text-muted-foreground h-4 w-4" />
-				</CardHeader>
-				<CardContent class="overflow-hidden">
-					{#if sysInfo}
-						<div class="mb-4 space-y-2">
-							<div class="flex items-center justify-between text-sm">
-								<span>当前 CPU 使用率</span>
-								<span class="font-medium">{formatCpu(sysInfo.used_cpu)}</span>
-							</div>
-						</div>
-					{/if}
-					{#if cpuHistory.length > 0}
-						<Chart.Container config={cpuChartConfig} class="h-[150px] w-full">
-							<AreaChart
-								data={cpuHistory}
-								x="time"
-								axis="x"
-								series={[
-									{
-										key: 'used',
-										label: cpuChartConfig.used.label,
-										color: cpuChartConfig.used.color
-									},
-									{
-										key: 'process',
-										label: cpuChartConfig.process.label,
-										color: cpuChartConfig.process.color
-									}
-								]}
-								props={{
-									area: {
-										curve: curveNatural,
-										line: { class: 'stroke-1' },
-										'fill-opacity': 0.4
-									},
-									xAxis: {
-										format: () => ''
-									}
-								}}
+					</details>
+				</div>
+			</div>
+			<div class="mt-5 flex flex-wrap items-center gap-5">
+				<div
+					class="relative grid size-36 shrink-0 place-items-center rounded-full"
+					style:background={total ? `conic-gradient(${pie})` : 'var(--muted)'}
+					role="img"
+					aria-label={metric === 'count'
+						? `视频数量 ${count} 个`
+						: `已知大小 ${bytes(total)}，${unknown} 个视频数据不完整`}
+				>
+					<div class="grid size-24 place-content-center rounded-full bg-card text-center">
+						<strong class="text-lg"
+							>{storageLoading
+								? '读取中'
+								: metric === 'count'
+									? count
+									: total
+										? bytes(total)
+										: unknown
+											? '暂无数据'
+											: '0 B'}</strong
+						><span class="text-muted-foreground text-[10px]"
+							>{metric === 'count'
+								? '个视频'
+								: unknown
+									? '已知大小 · 数据不完整'
+									: '视频总大小'}</span
+						>
+					</div>
+				</div>
+				<ul class="max-h-40 min-w-40 flex-1 space-y-2 overflow-auto">
+					{#each folders as folder, i (folder.name)}<li class="flex items-center gap-2 text-xs">
+							<span
+								class="size-2 shrink-0 rounded-full"
+								style:background={colors[i % colors.length]}
+							></span><span class="min-w-0 flex-1 truncate" title={folder.name}>{folder.name}</span
+							><span class="text-muted-foreground tabular-nums"
+								>{metric === 'count'
+									? `${folder.count} 个`
+									: folder.unknown_count
+										? folder.bytes
+											? `已知 ${bytes(folder.bytes)}`
+											: '暂无数据'
+										: bytes(folder.bytes)}</span
 							>
-								{#snippet tooltip({ context })}
-									<MyChartTooltip
-										{context}
-										labelFormatter={(timestamp: number) => {
-											return formatTimestamp(timestamp);
-										}}
-										valueFormatter={(v: number) => formatCpu(v)}
-										indicator="line"
-									/>
-								{/snippet}
-							</AreaChart>
-						</Chart.Container>
-					{:else}
-						<div class="text-muted-foreground flex h-[150px] items-center justify-center text-sm">
-							等待数据...
-						</div>
-					{/if}
-				</CardContent>
-			</Card>
-		</div>
-	{/if}
+						</li>{:else}<li class="text-muted-foreground text-xs">
+							{storageLoading ? '正在读取统计…' : '暂无视频记录'}
+						</li>{/each}
+				</ul>
+			</div>
+			<p class="text-muted-foreground mt-5 text-xs">
+				{metric === 'count'
+					? '按文件夹统计视频数量，包含已有视频记录。'
+					: unknown
+						? `${unknown} 个视频的大小暂无完整数据；图中仅展示已知大小。`
+						: '本地文件与已保存的网盘记录汇总，不扫描网盘目录。'}
+			</p>
+			{#if storageError}<p class="text-destructive mt-2 text-xs">{storageError}</p>{/if}
+		</section>
+	</div>
+	<section class="border-t pt-7"><VideoWall embedded /></section>
 </div>

@@ -41,6 +41,7 @@ struct TaskContext {
     connection: DatabaseConnection,
     bili_client: Arc<BiliClient>,
     running: tokio::sync::Mutex<()>,
+    scheduled_wait: tokio::sync::Mutex<()>,
     status_tx: watch::Sender<TaskStatus>,
     status_rx: watch::Receiver<TaskStatus>,
     video_task_id: tokio::sync::Mutex<Option<uuid::Uuid>>, // 存储当前视频下载任务的 UUID
@@ -67,6 +68,13 @@ impl DownloadTaskManager {
         self.cx.status_rx.clone()
     }
 
+    pub fn try_library_lock(&'static self) -> Result<tokio::sync::MutexGuard<'static, ()>> {
+        self.cx
+            .running
+            .try_lock()
+            .context("下载或画质任务正在运行，请等待完成后重试")
+    }
+
     /// 手动执行一次下载任务
     pub async fn download_once(&self) -> Result<()> {
         let _ = self
@@ -75,7 +83,7 @@ impl DownloadTaskManager {
             .await
             .add(Job::new_one_shot_async(
                 Duration::from_secs(0),
-                DownloadTaskManager::download_video_task(self.cx.clone()),
+                DownloadTaskManager::download_video_task(self.cx.clone(), true),
             )?)
             .await?;
         Ok(())
@@ -102,6 +110,7 @@ impl DownloadTaskManager {
             connection,
             bili_client,
             running,
+            scheduled_wait: tokio::sync::Mutex::new(()),
             status_tx,
             status_rx,
             video_task_id,
@@ -125,7 +134,7 @@ impl DownloadTaskManager {
         }
         // 初始化并添加视频下载任务，将任务 ID 保存到 TaskManager 中
         let video_task_id = async {
-            let job_run = DownloadTaskManager::download_video_task(cx.clone());
+            let job_run = DownloadTaskManager::download_video_task(cx.clone(), false);
             let job = match &initial_config.interval {
                 Trigger::Interval(interval) => Job::new_repeated_async(Duration::from_secs(*interval), job_run)?,
                 Trigger::Cron(cron) => Job::new_async_tz(cron, chrono::Local, job_run)?,
@@ -177,7 +186,7 @@ impl DownloadTaskManager {
                             .context("移除旧的视频下载任务失败")?;
                     }
                     let new_video_task_id = async {
-                        let job_run = DownloadTaskManager::download_video_task(cx.clone());
+                        let job_run = DownloadTaskManager::download_video_task(cx.clone(), false);
                         let job = match &new_config.interval {
                             Trigger::Interval(interval) => {
                                 Job::new_repeated_async(Duration::from_secs(*interval), job_run)?
@@ -265,10 +274,50 @@ impl DownloadTaskManager {
 
     fn download_video_task(
         cx: Arc<TaskContext>,
+        manual: bool,
     ) -> impl FnMut(uuid::Uuid, JobScheduler) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         move |uuid, mut l| {
             let cx = cx.clone();
             Box::pin(async move {
+                if !manual {
+                    // Only one timer can wait. Manual refresh never waits behind jitter.
+                    let Ok(_pending) = cx.scheduled_wait.try_lock() else {
+                        return;
+                    };
+                    let mut changes = VersionedConfig::get().subscribe();
+                    let config = changes.borrow_and_update().clone();
+                    let next_tick = l
+                        .next_tick_for_job(uuid)
+                        .await
+                        .ok()
+                        .flatten()
+                        .map(|dt| dt.with_timezone(&chrono::Local));
+                    if !config.refresh_schedule.allows(chrono::Local::now().time()) {
+                        cx.status_tx.send_modify(|status| status.next_run = next_tick);
+                        return;
+                    }
+                    let delay = config.refresh_schedule.delay_seconds();
+                    if delay > 0 {
+                        cx.status_tx.send_modify(|status| {
+                            status.next_run = Some(chrono::Local::now() + chrono::Duration::seconds(delay as i64))
+                        });
+                        if !wait_refresh_delay(Duration::from_secs(delay), &mut changes).await {
+                            return;
+                        }
+                    }
+                    // A settings change cancels the old timer; re-check the time after jitter.
+                    if *cx.video_task_id.lock().await != Some(uuid) {
+                        return;
+                    }
+                    if !VersionedConfig::get()
+                        .read()
+                        .refresh_schedule
+                        .allows(chrono::Local::now().time())
+                    {
+                        cx.status_tx.send_modify(|status| status.next_run = next_tick);
+                        return;
+                    }
+                }
                 let Ok(_lock) = cx.running.try_lock() else {
                     warn!("上一次视频下载任务尚未结束，跳过本次执行..");
                     return;
@@ -375,4 +424,31 @@ async fn download_video(
         }
     }
     Ok(())
+}
+
+// Return false immediately when configuration changes; release the pending timer lock.
+async fn wait_refresh_delay(delay: Duration, changes: &mut watch::Receiver<Arc<Config>>) -> bool {
+    tokio::select! {
+        biased;
+        _ = changes.changed() => false,
+        _ = tokio::time::sleep(delay) => true,
+    }
+}
+
+#[cfg(test)]
+mod schedule_tests {
+    use super::*;
+    #[tokio::test]
+    async fn configuration_change_interrupts_a_day_long_jitter() {
+        let (sender, mut receiver) = watch::channel(Arc::new(Config::default()));
+        receiver.borrow_and_update();
+        sender.send(Arc::new(Config::default())).unwrap();
+        let result = tokio::time::timeout(
+            Duration::from_secs(1),
+            wait_refresh_delay(Duration::from_secs(86400), &mut receiver),
+        )
+        .await
+        .unwrap();
+        assert!(!result);
+    }
 }

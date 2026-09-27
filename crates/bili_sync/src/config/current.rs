@@ -25,6 +25,17 @@ pub static CONFIG_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
         .expect("No config path found")
 });
 
+#[derive(Serialize, Deserialize, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum StorageMode {
+    // Read legacy configurations without silently changing their existing paths.
+    // New installations and the settings UI only offer Local / Cloud.
+    #[default]
+    Auto,
+    Local,
+    Cloud,
+}
+
 #[derive(Serialize, Deserialize, Validate, Clone)]
 pub struct Config {
     pub auth_token: String,
@@ -43,15 +54,21 @@ pub struct Config {
     #[serde(default)]
     pub ignore_common_errors: bool,
     #[serde(default)]
-    pub media_index_webhook_url: String,
-    #[serde(default)]
-    pub media_index_webhook_token: String,
+    pub storage_mode: StorageMode,
     #[serde(default)]
     pub cd2_url: String,
     #[serde(default)]
     pub cd2_token: String,
     #[serde(default)]
     pub cd2_save_path: String,
+    #[serde(default)]
+    pub strm_base_url: String,
+    #[serde(default)]
+    pub media_index_webhook_enabled: bool,
+    #[serde(default)]
+    pub media_index_webhook_url: String,
+    #[serde(default)]
+    pub media_index_webhook_token: String,
     #[serde(default = "default_favorite_path")]
     pub favorite_default_path: String,
     #[serde(default = "default_collection_path")]
@@ -59,6 +76,8 @@ pub struct Config {
     #[serde(default = "default_submission_path")]
     pub submission_default_path: String,
     pub interval: Trigger,
+    #[serde(default)]
+    pub refresh_schedule: super::schedule::RefreshSchedule,
     pub upper_path: PathBuf,
     pub nfo_time_type: NFOTimeType,
     pub concurrent_limit: ConcurrentLimit,
@@ -79,8 +98,9 @@ impl Config {
     }
 
     pub fn check(&self) -> Result<()> {
-        crate::media_index::validate(self)?;
         crate::cd2::validate(self)?;
+        crate::media_index::validate(self)?;
+        self.refresh_schedule.validate()?;
         let mut errors = Vec::new();
         if !self.upper_path.is_absolute() {
             errors.push("up 主头像保存的路径应为绝对路径");
@@ -145,15 +165,19 @@ impl Default for Config {
             page_name: "{{bvid}}".to_owned(),
             notifiers: None,
             ignore_common_errors: false,
-            media_index_webhook_url: String::new(),
-            media_index_webhook_token: String::new(),
+            storage_mode: StorageMode::Local,
             cd2_url: String::new(),
             cd2_token: String::new(),
             cd2_save_path: String::new(),
+            strm_base_url: String::new(),
+            media_index_webhook_enabled: false,
+            media_index_webhook_url: String::new(),
+            media_index_webhook_token: String::new(),
             favorite_default_path: default_favorite_path(),
             collection_default_path: default_collection_path(),
             submission_default_path: default_submission_path(),
             interval: Trigger::default(),
+            refresh_schedule: Default::default(),
             upper_path: CONFIG_DIR.join("upper_face"),
             nfo_time_type: NFOTimeType::FavTime,
             concurrent_limit: ConcurrentLimit::default(),
@@ -162,5 +186,19 @@ impl Default for Config {
             try_upower_anyway: false,
             version: 0,
         }
+    }
+}
+
+#[cfg(test)]
+mod compatibility_tests {
+    use super::*;
+    #[test]
+    fn existing_media_index_settings_survive_roundtrip() {
+        let mut saved = serde_json::to_value(Config::default()).unwrap();
+        saved["media_index_webhook_enabled"] = true.into();
+        saved["media_index_webhook_url"] = "https://media.example.com/webhook".into();
+        saved["media_index_webhook_token"] = "legacy-token".into();
+        let loaded: Config = serde_json::from_value(saved.clone()).unwrap();
+        assert_eq!(serde_json::to_value(loaded).unwrap(), saved);
     }
 }

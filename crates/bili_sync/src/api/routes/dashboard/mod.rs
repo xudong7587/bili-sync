@@ -1,3 +1,4 @@
+mod storage;
 use axum::routing::get;
 use axum::{Extension, Router};
 use bili_sync_entity::*;
@@ -8,7 +9,9 @@ use crate::api::response::{DashBoardResponse, DayCountPair};
 use crate::api::wrapper::{ApiError, ApiResponse};
 
 pub(super) fn router() -> Router {
-    Router::new().route("/dashboard", get(get_dashboard))
+    Router::new()
+        .route("/dashboard", get(get_dashboard))
+        .merge(storage::router())
 }
 
 async fn get_dashboard(

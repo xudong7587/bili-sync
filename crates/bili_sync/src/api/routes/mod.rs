@@ -10,8 +10,10 @@ use reqwest::StatusCode;
 use crate::api::wrapper::ApiResponse;
 use crate::config::VersionedConfig;
 
+mod cloud;
 mod config;
 mod dashboard;
+mod library;
 mod login;
 mod me;
 mod task;
@@ -22,10 +24,12 @@ mod ws;
 pub use ws::{LogHelper, MAX_HISTORY_LOGS};
 
 pub fn router() -> Router {
-    Router::new().nest(
+    library::playback_router().nest(
         "/api",
         config::router()
             .merge(me::router())
+            .merge(cloud::router())
+            .merge(library::router())
             .merge(login::router())
             .merge(video_sources::router())
             .merge(videos::router())

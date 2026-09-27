@@ -30,6 +30,9 @@ export interface VideoSourcesResponse {
 }
 
 export interface VideoInfo {
+	created_at?: string;
+	favtime?: string;
+	cover?: string;
 	id: number;
 	bvid: string;
 	name: string;
@@ -56,6 +59,14 @@ export interface PageInfo {
 }
 
 export interface VideoResponse {
+	metadata?: {
+		upper_id: number;
+		upper_face: string;
+		intro: string;
+		path: string;
+		pubtime: string;
+		tags?: string[];
+	};
 	video: VideoInfo;
 	pages: PageInfo[];
 }
@@ -195,6 +206,9 @@ export interface UppersResponse {
 export interface InsertFavoriteRequest {
 	fid: number;
 	path: string;
+	enabled?: boolean;
+	rule?: Rule | null;
+	filter_option?: FilterOption | null;
 }
 
 export interface InsertCollectionRequest {
@@ -202,11 +216,17 @@ export interface InsertCollectionRequest {
 	mid: number;
 	collection_type?: number;
 	path: string;
+	enabled?: boolean;
+	rule?: Rule | null;
+	filter_option?: FilterOption | null;
 }
 
 export interface InsertSubmissionRequest {
 	upper_id: number;
 	path: string;
+	enabled?: boolean;
+	rule?: Rule | null;
+	filter_option?: FilterOption | null;
 }
 
 export interface Condition<T> {
@@ -360,15 +380,24 @@ export interface Config {
 	page_name: string;
 	notifiers: Notifier[] | null;
 	ignore_common_errors: boolean;
-	media_index_webhook_url: string;
-	media_index_webhook_token: string;
+	storage_mode?: 'auto' | 'local' | 'cloud';
 	cd2_url: string;
 	cd2_token: string;
 	cd2_save_path: string;
+	strm_base_url: string;
+	media_index_webhook_enabled?: boolean;
+	media_index_webhook_url?: string;
+	media_index_webhook_token?: string;
 	favorite_default_path: string;
 	collection_default_path: string;
 	submission_default_path: string;
 	interval: Trigger;
+	refresh_schedule: {
+		start: string;
+		end: string;
+		jitter_min_seconds: number;
+		jitter_max_seconds: number;
+	};
 	upper_path: string;
 	nfo_time_type: string;
 	concurrent_limit: ConcurrentLimit;
@@ -392,6 +421,7 @@ export interface DashBoardResponse {
 }
 
 export interface SysInfo {
+	download_bytes: number;
 	timestamp: number;
 	total_memory: number;
 	used_memory: number;
@@ -434,3 +464,39 @@ export type QrcodePollResponse =
 			status: 'expired';
 			message: string;
 	  };
+
+export interface SavedQuality {
+	qn?: number;
+	codec?: string;
+	width?: number;
+	height?: number;
+	duration?: number;
+	bitrate?: number;
+	frame_rate?: string;
+}
+export interface LibraryRow {
+	id: number;
+	video_id: number;
+	bvid: string;
+	title: string;
+	part: string;
+	favorite_time: string;
+	downloaded: boolean;
+	metadata_path: string | null;
+	storage_path: string | null;
+	storage: string;
+	quality: SavedQuality | null;
+	comparison: {
+		checked_at: string;
+		current: SavedQuality;
+		candidate: SavedQuality;
+		upgradeable: boolean;
+		message: string;
+	} | null;
+}
+export interface LibraryJob {
+	running: boolean;
+	total: number;
+	completed: number;
+	results: { page_id: number; success: boolean; message: string }[];
+}

@@ -47,7 +47,10 @@ impl RefreshSchedule {
         }
     }
 
-    pub fn delay_seconds(&self) -> u64 {
+    pub fn delay_seconds(&self, trigger: &super::Trigger) -> u64 {
+        if matches!(trigger, super::Trigger::Cron(_)) {
+            return 0;
+        }
         let min = self.jitter_min_seconds.min(86400);
         let max = self.jitter_max_seconds.clamp(min, 86400);
         min + (uuid::Uuid::new_v4().as_u128() % u128::from(max - min + 1)) as u64
@@ -76,9 +79,27 @@ mod tests {
     fn legacy_defaults_allow_all_day_without_delay() {
         let schedule: RefreshSchedule = serde_json::from_str("{}").unwrap();
         assert!(schedule.allows(time("12:00")));
-        assert_eq!(schedule.delay_seconds(), 0);
+        assert_eq!(schedule.delay_seconds(&super::super::Trigger::default()), 0);
         assert!(schedule.validate().is_ok());
     }
+    #[test]
+    fn cron_ignores_saved_jitter_but_interval_keeps_it() {
+        let schedule = RefreshSchedule {
+            jitter_min_seconds: 30,
+            jitter_max_seconds: 90,
+            ..Default::default()
+        };
+        let cron = super::super::Trigger::Cron("0 0 2 * * *".into());
+        let interval = super::super::Trigger::Interval(1200);
+        for _ in 0..100 {
+            assert_eq!(schedule.delay_seconds(&cron), 0);
+            assert!((30..=90).contains(&schedule.delay_seconds(&interval)));
+        }
+        // Switching to Cron must not erase the values used on switching back.
+        assert_eq!(schedule.jitter_min_seconds, 30);
+        assert_eq!(schedule.jitter_max_seconds, 90);
+    }
+
     #[test]
     fn rejects_partial_window_and_inverted_jitter() {
         assert!(

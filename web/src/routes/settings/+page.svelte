@@ -33,6 +33,7 @@
 	let loading = false;
 
 	let intervalInput: string = '1200';
+	$: intervalMode = intervalInput.trim() !== '' && !isNaN(Number(intervalInput.trim()));
 
 	// Notifier 管理相关
 	let showNotifierDialog = false;
@@ -332,7 +333,9 @@
 										<p class="text-xs">
 											视频下载任务的触发条件，支持两种格式：<br />
 											1. 输入数字表示间隔秒数，例如 1200 表示每隔 20 分钟触发一次； <br />
-											2. 输入 Cron 表达式，格式为“秒 分 时 日 月 周”，例如“0 0 2 * * *”表示每天凌晨2点触发一次。
+											2. 输入 Cron 表达式，格式为“秒 分 时 日 月 周”，例如“0 0 2 * * *”表示每天凌晨2点触发一次。<br
+											/>
+											下方随机间隙仅对间隔秒数生效，Cron 模式不随机等待。
 										</p>
 									</Tooltip.Content>
 								</Tooltip.Root>
@@ -453,7 +456,8 @@
 						<div>
 							<h3 class="font-semibold">随机间隙</h3>
 							<p class="text-muted-foreground mt-1 text-sm">
-								每次自动触发后随机等待，再检查是否仍在时间段内。设置为 0 可关闭。
+								仅在任务触发条件为间隔秒数时生效：触发后随机等待，再检查是否仍在时间段内。 Cron
+								模式不随机等待，按表达式触发；已填写的等待秒数会保留。设置为 0 可关闭。
 							</p>
 						</div>
 						<div class="grid grid-cols-2 gap-4">
@@ -463,6 +467,7 @@
 									type="number"
 									min={0}
 									max={86400}
+									disabled={!intervalMode}
 									bind:value={formData.refresh_schedule.jitter_min_seconds}
 								/>
 							</div>
@@ -472,6 +477,7 @@
 									type="number"
 									min={0}
 									max={86400}
+									disabled={!intervalMode}
 									bind:value={formData.refresh_schedule.jitter_max_seconds}
 								/>
 							</div>

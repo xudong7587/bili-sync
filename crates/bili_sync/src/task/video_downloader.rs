@@ -296,7 +296,7 @@ impl DownloadTaskManager {
                         cx.status_tx.send_modify(|status| status.next_run = next_tick);
                         return;
                     }
-                    let delay = config.refresh_schedule.delay_seconds();
+                    let delay = config.refresh_schedule.delay_seconds(&config.interval);
                     if delay > 0 {
                         cx.status_tx.send_modify(|status| {
                             status.next_run = Some(chrono::Local::now() + chrono::Duration::seconds(delay as i64))

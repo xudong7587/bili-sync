@@ -6,6 +6,7 @@
 	import DatabaseIcon from '@lucide/svelte/icons/database';
 	import FilePlayIcon from '@lucide/svelte/icons/file-play';
 	import FoldersIcon from '@lucide/svelte/icons/folders';
+	import FolderUpIcon from '@lucide/svelte/icons/folder-up';
 	import HeartIcon from '@lucide/svelte/icons/heart';
 	import PaletteIcon from '@lucide/svelte/icons/palette';
 	import Settings2Icon from '@lucide/svelte/icons/settings-2';
@@ -74,7 +75,10 @@
 			},
 			{
 				category: '存储',
-				items: [{ title: '视频网盘分流', icon: CloudIcon, href: '/settings?section=cloud' }]
+				items: [
+					{ title: '视频网盘分流', icon: CloudIcon, href: '/settings?section=cloud' },
+					{ title: '存量视频迁移', icon: FolderUpIcon, href: '/storage/migration' }
+				]
 			},
 			{
 				category: '设置',

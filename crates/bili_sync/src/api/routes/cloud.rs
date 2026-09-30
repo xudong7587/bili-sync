@@ -1,8 +1,9 @@
 use std::sync::LazyLock;
 
 use axum::routing::{get, post};
-use axum::{Json, Router};
+use axum::{Extension, Json, Router};
 use parking_lot::Mutex;
+use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 
 use crate::api::wrapper::{ApiError, ApiResponse};
@@ -30,6 +31,26 @@ pub fn router() -> Router {
         .route("/cloud/space", get(space).post(test_connection))
         .route("/cloud/login", post(start_login).get(login_state))
         .route("/cloud/account/check", post(check_account))
+        .route("/cloud/migration", get(migration_status).post(plan_migration))
+        .route("/cloud/migration/run", post(run_migration))
+        .route("/cloud/migration/pause", post(pause_migration))
+}
+async fn migration_status() -> Result<ApiResponse<crate::migration::Status>, ApiError> {
+    Ok(ApiResponse::ok(crate::migration::status().await?))
+}
+async fn plan_migration(
+    Extension(db): Extension<DatabaseConnection>,
+    Json(options): Json<crate::migration::Options>,
+) -> Result<ApiResponse<crate::migration::Status>, ApiError> {
+    Ok(ApiResponse::ok(crate::migration::plan(&db, options).await?))
+}
+async fn run_migration(Extension(db): Extension<DatabaseConnection>) -> Result<ApiResponse<bool>, ApiError> {
+    crate::migration::start(db).await?;
+    Ok(ApiResponse::ok(true))
+}
+async fn pause_migration() -> Result<ApiResponse<bool>, ApiError> {
+    crate::migration::pause().await?;
+    Ok(ApiResponse::ok(true))
 }
 async fn space() -> Result<ApiResponse<SpaceInfo>, ApiError> {
     let cd2 = Cd2Client::connection(&VersionedConfig::get().read())?

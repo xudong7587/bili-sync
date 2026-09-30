@@ -11,6 +11,7 @@ mod downloader;
 mod error;
 mod library;
 mod media_index;
+mod migration;
 mod notifier;
 mod p115;
 mod p115_cipher;

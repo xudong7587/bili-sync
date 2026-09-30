@@ -18,6 +18,10 @@ const CHUNK_SIZE: usize = 2 * 1024 * 1024;
 const UPLOAD_TIMEOUT: Duration = Duration::from_secs(6 * 60 * 60);
 const POLL_INTERVAL: Duration = Duration::from_secs(5);
 
+/// Bytes accepted by CD2, rather than an estimate of its provider-side transfer.
+pub static UPLOAD_BYTES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static CLOUD_UPLOAD_BYTES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UploadOutcome {
     Uploaded,
@@ -322,6 +326,7 @@ impl Cd2Client {
                 length
             );
             offset += length as u64;
+            UPLOAD_BYTES.fetch_add(length as u64, std::sync::atomic::Ordering::Relaxed);
         }
         ensure!(offset == size, "本地视频上传期间大小改变");
         Ok(())
@@ -395,8 +400,19 @@ impl Cd2Client {
         previous_keys: &HashSet<String>,
     ) -> Result<()> {
         let deadline = Instant::now() + UPLOAD_TIMEOUT;
+        let mut transferred = HashMap::<String, u64>::new();
         loop {
             let tasks = self.upload_list().await?;
+            for task in tasks
+                .upload_files
+                .iter()
+                .filter(|task| task.dest_path == remote_file && !previous_keys.contains(&task.key))
+            {
+                let bytes = task.transfered_bytes.min(size);
+                let accounted = transferred.entry(task.key.clone()).or_default();
+                CLOUD_UPLOAD_BYTES.fetch_add(bytes.saturating_sub(*accounted), std::sync::atomic::Ordering::Relaxed);
+                *accounted = (*accounted).max(bytes);
+            }
             // Completed transfers may disappear before the next poll. Only a
             // refreshed cloud file with a matching SHA1 can replace that signal;
             // a filename/size alone may describe CD2's pending upload cache.

@@ -14,6 +14,8 @@ import type {
 	InsertSubmissionRequest,
 	LibraryJob,
 	LibraryRow,
+	MigrationOptions,
+	MigrationStatus,
 	Notifier,
 	QrcodePollResponse as PollQrcodeResponse,
 	ResetFilteredVideosResponse,
@@ -238,14 +240,35 @@ class ApiClient {
 	}
 
 	async storageSummary(metric: 'count' | 'bytes' = 'count') {
-		return this.get<{ name: string; bytes: number; count: number; unknown_count: number }[]>(
-			`/dashboard/storage?metric=${metric}`
-		);
+		return this.get<
+			{
+				name: string;
+				bytes: number;
+				count: number;
+				unknown_count: number;
+				local_count: number;
+				cloud_count: number;
+				mixed_count: number;
+				unknown_location: number;
+			}[]
+		>(`/dashboard/storage?metric=${metric}`);
 	}
 
 	async cloudSpace(connection?: { url: string; token: string; path: string }) {
 		if (connection) return this.post<{ free: number; total: number }>('/cloud/space', connection);
 		return this.get<{ total: number; used: number; free: number }>('/cloud/space');
+	}
+	async migrationStatus() {
+		return this.get<MigrationStatus>('/cloud/migration');
+	}
+	async migrationPlan(options: MigrationOptions) {
+		return this.post<MigrationStatus>('/cloud/migration', options);
+	}
+	async migrationRun() {
+		return this.post<boolean>('/cloud/migration/run');
+	}
+	async migrationPause() {
+		return this.post<boolean>('/cloud/migration/pause');
 	}
 	async cloudLoginStart(client_id: string, channel: string) {
 		return this.post<boolean>('/cloud/login', { client_id, channel });
@@ -377,6 +400,10 @@ const api = {
 	libraryJob: () => apiClient.libraryJob(),
 
 	storageSummary: (metric: 'count' | 'bytes' = 'count') => apiClient.storageSummary(metric),
+	migrationStatus: () => apiClient.migrationStatus(),
+	migrationPlan: (options: MigrationOptions) => apiClient.migrationPlan(options),
+	migrationRun: () => apiClient.migrationRun(),
+	migrationPause: () => apiClient.migrationPause(),
 	cloudSpace: (connection?: { url: string; token: string; path: string }) =>
 		apiClient.cloudSpace(connection),
 	cloudAccountCheck: () => apiClient.cloudAccountCheck(),

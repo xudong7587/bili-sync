@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import CircleHelp from '@lucide/svelte/icons/circle-help';
 	import api from '$lib/api';
-	import type { SysInfo, TaskStatus, ApiError } from '$lib/types';
+	import type { SysInfo, TaskStatus, ApiError, MigrationStatus } from '$lib/types';
 	import { Button } from '$lib/components/ui/button';
 	import VideoWall from '$lib/components/video-wall.svelte';
 	import LiveChart from '$lib/components/live-chart.svelte';
@@ -10,8 +10,23 @@
 	import { toast } from 'svelte-sonner';
 	let system = $state<SysInfo | null>(null);
 	let task = $state<TaskStatus | null>(null);
-	let history = $state<{ cpu: number; memory: number; speed: number }[]>([]);
-	let folders = $state<{ name: string; bytes: number; count: number; unknown_count: number }[]>([]);
+	let history = $state<
+		{ cpu: number; memory: number; speed: number; upload: number; cloudUpload: number }[]
+	>([]);
+	let folders = $state<
+		{
+			name: string;
+			bytes: number;
+			count: number;
+			unknown_count: number;
+			local_count: number;
+			cloud_count: number;
+			mixed_count: number;
+			unknown_location: number;
+		}[]
+	>([]);
+	let migration = $state<MigrationStatus | null>(null);
+	const migrating = $derived(migration?.phase === 'running' || migration?.phase === 'pausing');
 	let storageError = $state('');
 	let metric = $state<'count' | 'bytes'>('count');
 	let storageLoading = $state(false);
@@ -23,6 +38,12 @@
 	const total = $derived(folders.reduce((sum, f) => sum + measure(f), 0));
 	const count = $derived(folders.reduce((sum, f) => sum + f.count, 0));
 	const speed = $derived(history.at(-1)?.speed || 0);
+	const uploadSpeed = $derived(history.at(-1)?.upload || 0);
+	const cloudSpeed = $derived(history.at(-1)?.cloudUpload || 0);
+	const localCount = $derived(folders.reduce((sum, f) => sum + (f.local_count || 0), 0));
+	const cloudCount = $derived(folders.reduce((sum, f) => sum + (f.cloud_count || 0), 0));
+	const mixedCount = $derived(folders.reduce((sum, f) => sum + (f.mixed_count || 0), 0));
+	const unknownLocation = $derived(folders.reduce((sum, f) => sum + (f.unknown_location || 0), 0));
 	const pie = $derived.by(() => {
 		let angle = 0;
 		return folders
@@ -73,6 +94,20 @@
 			triggering = false;
 		}
 	}
+	async function migrationProgress() {
+		try {
+			const next = (await api.migrationStatus()).data;
+			if (
+				migration &&
+				(next.completed !== migration.completed ||
+					(next.updated_at !== migration.updated_at && next.phase === 'ready'))
+			)
+				void storage();
+			migration = next;
+		} catch {
+			/* Existing dashboards remain usable while the API reconnects. */
+		}
+	}
 	onMount(() => {
 		setBreadcrumb([{ label: '仪表盘' }]);
 		const stopSystem = api.subscribeToSysInfo((data) => {
@@ -86,7 +121,16 @@
 				{
 					cpu: data.used_cpu,
 					memory: data.total_memory ? (data.used_memory / data.total_memory) * 100 : 0,
-					speed: currentSpeed
+					speed: currentSpeed,
+					upload:
+						system && seconds > 0
+							? Math.max(0, (data.upload_bytes || 0) - (system.upload_bytes || 0)) / seconds
+							: 0,
+					cloudUpload:
+						system && seconds > 0
+							? Math.max(0, (data.cloud_upload_bytes || 0) - (system.cloud_upload_bytes || 0)) /
+								seconds
+							: 0
 				}
 			];
 			system = data;
@@ -95,11 +139,14 @@
 			task = data;
 		});
 		void storage();
+		void migrationProgress();
 		const timer = setInterval(storage, 60000);
+		const migrationTimer = setInterval(migrationProgress, 3000);
 		return () => {
 			stopSystem();
 			stopTasks();
 			clearInterval(timer);
+			clearInterval(migrationTimer);
 		};
 	});
 </script>
@@ -107,27 +154,57 @@
 <svelte:head><title>仪表盘 - Bili Sync</title></svelte:head>
 <div class="space-y-8 pb-8">
 	<div class="flex justify-end">
-		<Button variant="outline" onclick={trigger} disabled={triggering || task?.is_running}
+		<Button
+			variant="outline"
+			onclick={trigger}
+			disabled={triggering || task?.is_running || migrating}
 			>{triggering ? '正在安排…' : task?.is_running ? '任务运行中' : '立即检查更新'}</Button
 		>
 	</div>
 	<div class="grid gap-4 xl:grid-cols-3">
 		<section class="rounded-xl border bg-card p-5">
 			<div class="flex items-center justify-between">
-				<h2 class="font-semibold">下载状态</h2>
+				<h2 class="font-semibold">传输状态</h2>
 				<span class="text-primary text-xs"
-					>{task ? (task.is_running ? '正在处理' : '等待下次更新') : '连接中'}</span
+					>{migrating
+						? '存量迁移中'
+						: task
+							? task.is_running
+								? '正在处理'
+								: '等待下次更新'
+							: '连接中'}</span
 				>
 			</div>
-			<p class="mt-5 text-4xl font-semibold tracking-tight tabular-nums">
-				{bytes(speed)}<span class="text-muted-foreground ml-1 text-base font-normal">/s</span>
-			</p>
-			<p class="text-muted-foreground mt-1 text-xs">bili-sync 视频下载速度</p>
+			<div class="mt-5 grid grid-cols-2 gap-4">
+				<div>
+					<p class="text-xs text-muted-foreground">B 站下载</p>
+					<p class="mt-1 text-2xl font-semibold tracking-tight tabular-nums">
+						{bytes(speed)}<span class="ml-1 text-xs font-normal text-muted-foreground">/s</span>
+					</p>
+				</div>
+				<div>
+					<p class="text-xs text-muted-foreground">发送至 CD2</p>
+					<p class="mt-1 text-2xl font-semibold tracking-tight tabular-nums text-amber-600">
+						{bytes(uploadSpeed)}<span class="ml-1 text-xs font-normal text-muted-foreground"
+							>/s</span
+						>
+					</p>
+				</div>
+			</div>
 			<LiveChart
 				data={history.map((h) => h.speed / 1024 ** 2)}
-				label="最近两分钟视频下载速度"
+				second={history.map((h) => h.upload / 1024 ** 2)}
+				label="最近两分钟：主题色为下载，橙色为发送至 CD2"
 				unit="MB/s"
 			/>
+			<p class="text-xs text-muted-foreground">
+				网盘上传 {bytes(cloudSpeed)}/s · CD2 任务约 5 秒采样，秒传可能没有速度记录。
+			</p>
+			{#if migration?.total}<p class="mt-2 text-xs text-muted-foreground">
+					存量迁移已确认 {migration.completed} / {migration.total} 个文件 · {bytes(
+						migration.completed_bytes
+					)} / {bytes(migration.total_bytes)}
+				</p>{/if}
 			<div class="text-muted-foreground mt-4 flex flex-wrap justify-between gap-2 text-xs">
 				<span>上次完成 {time(task?.last_finish || null)}</span><span
 					>下次检查 {time(task?.next_run || null)}</span
@@ -192,8 +269,8 @@
 						<div
 							class="absolute right-0 top-7 z-20 w-72 rounded-lg border bg-popover p-3 text-xs leading-relaxed text-popover-foreground shadow-lg"
 						>
-							个数来自本地数据库。大小读取本地视频文件或已有的网盘上传、比对记录，不遍历网盘。<br
-							/><br />
+							个数来自本地数据库，保存位置读取本地文件和已确认的上传记录。大小读取本地视频文件或已有的网盘上传、比对记录，不遍历网盘。迁移过程中自动刷新，合集所有分
+							P 完成后归为网盘。<br /><br />
 							网盘旧视频未登记大小时显示「暂无数据」，需先在媒体库中手动选择视频进行比对。画质比对会请求
 							B 站，批量过大或频繁操作可能触发风控，请分批执行。
 						</div>
@@ -234,7 +311,10 @@
 							<span
 								class="size-2 shrink-0 rounded-full"
 								style:background={colors[i % colors.length]}
-							></span><span class="min-w-0 flex-1 truncate" title={folder.name}>{folder.name}</span
+							></span><span
+								class="min-w-0 flex-1 truncate"
+								title={`${folder.name} · 本地 ${folder.local_count || 0} · 网盘 ${folder.cloud_count || 0} · 两地 ${folder.mixed_count || 0} · 待确认 ${folder.unknown_location || 0}`}
+								>{folder.name}</span
 							><span class="text-muted-foreground tabular-nums"
 								>{metric === 'count'
 									? `${folder.count} 个`
@@ -249,6 +329,11 @@
 						</li>{/each}
 				</ul>
 			</div>
+			<p class="mt-3 text-xs text-muted-foreground">
+				本地 {localCount} · 网盘 {cloudCount}{#if mixedCount}
+					· 两地 {mixedCount}{/if}{#if unknownLocation}
+					· 位置待确认 {unknownLocation}{/if}
+			</p>
 			<p class="text-muted-foreground mt-5 text-xs">
 				{metric === 'count'
 					? '按文件夹统计视频数量，包含已有视频记录。'

@@ -64,7 +64,7 @@
 	});
 </script>
 
-<section class="space-y-4 rounded-xl border p-5">
+<section class="appearance-surface space-y-4 rounded-xl border p-5">
 	<div class="flex flex-wrap items-center justify-between gap-3">
 		<div>
 			<h3 class="font-semibold">迁移设置与进度</h3>

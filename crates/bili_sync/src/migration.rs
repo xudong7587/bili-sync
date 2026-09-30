@@ -374,6 +374,10 @@ async fn run(db: &DatabaseConnection, cd2: &Cd2Client, pause_token: &Cancellatio
             guard = crate::task::DownloadTaskManager::get().library_lock() => guard,
             _ = pause_token.cancelled() => continue,
         };
+        if pause_token.is_cancelled() {
+            drop(guard);
+            continue;
+        }
         let part = page::Entity::find()
             .filter(page::Column::VideoId.eq(item.receipt.video_id))
             .filter(page::Column::Cid.eq(item.receipt.cid))

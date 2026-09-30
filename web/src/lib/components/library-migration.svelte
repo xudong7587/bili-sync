@@ -67,7 +67,7 @@
 <section class="space-y-4 rounded-xl border p-5">
 	<div class="flex flex-wrap items-center justify-between gap-3">
 		<div>
-			<h3 class="font-semibold">存量视频迁移</h3>
+			<h3 class="font-semibold">迁移设置与进度</h3>
 			<p class="mt-1 text-sm text-muted-foreground">
 				将本地已下载的 B 站视频按原目录上传到网盘，元数据保留在本地。
 			</p>
@@ -77,8 +77,8 @@
 			>{/if}
 	</div>
 	<p class="text-xs leading-relaxed text-muted-foreground">
-		先保存上方 CD2 和入库联动配置，再预览迁移清单。清单来自当前配置目录中的 bili-sync
-		数据库，只包含下载成功的视频文件。旧版用户可直接复用原配置和媒体目录；默认读取
+		先在「视频网盘分流」中保存 CD2 和入库联动配置，再预览迁移清单。清单来自当前配置目录中的
+		bili-sync 数据库，只包含下载成功的视频文件。旧版用户可直接复用原配置和媒体目录；默认读取
 		/media，也可填写已映射的独立视频根目录，其相对结构应与 /media
 		一致。本地原视频会保留，确认入库后可自行清理。
 	</p>
@@ -134,7 +134,7 @@
 	</div>
 	<p class="text-xs text-muted-foreground">
 		逐个上传，文件间随机等待，每批额外休息。默认每 10 个文件休息 2
-		分钟；降低频率可减少风控风险，但无法保证不触发网盘限制。迁移期间自动下载与画质操作等待，暂停后恢复。
+		分钟；降低频率可减少风控风险，但无法保证不触发网盘限制。单个文件处理时与下载、画质操作互斥；文件间休息时可继续追更。遇到正在运行的任务，迁移会等待其完成。
 	</p>
 	{#if job?.total || job?.phase === 'completed'}
 		<div class="grid grid-cols-2 gap-3 rounded-lg bg-muted/40 p-4 sm:grid-cols-4">

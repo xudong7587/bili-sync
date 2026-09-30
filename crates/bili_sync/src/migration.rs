@@ -5,7 +5,7 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use anyhow::{Context, Result, ensure};
 use bili_sync_entity::page;
-use sea_orm::{DatabaseConnection, EntityTrait};
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -188,13 +188,28 @@ pub async fn plan(db: &DatabaseConnection, options: Options) -> Result<Status> {
         ..Default::default()
     };
     let mut seen = HashSet::new();
+    let previous_destinations = previous
+        .items
+        .iter()
+        .map(|item| {
+            (
+                (item.receipt.video_id, item.receipt.cid),
+                item.receipt.storage_path.as_str(),
+            )
+        })
+        .collect::<std::collections::HashMap<_, _>>();
     for part in page::Entity::find().all(db).await? {
         if !seen.insert((part.video_id, part.cid)) {
             continue;
         }
         let saved = library::load(part.video_id, part.cid).await?;
         if let Some(mut receipt) = saved.clone().filter(|r| r.cloud) {
-            notify_upload(&mut receipt).await?;
+            if previous_destinations
+                .get(&(part.video_id, part.cid))
+                .is_some_and(|path| *path == receipt.storage_path)
+            {
+                notify_upload(&mut receipt).await?;
+            }
             next.status.skipped_cloud += 1;
             continue;
         }
@@ -278,8 +293,7 @@ pub async fn plan(db: &DatabaseConnection, options: Options) -> Result<Status> {
     Ok(status)
 }
 
-pub async fn start() -> Result<()> {
-    let guard = crate::task::DownloadTaskManager::get().try_library_lock()?;
+pub async fn start(db: DatabaseConnection) -> Result<()> {
     let mut state = STATE.lock().await;
     let journal = load(&mut state).await?;
     ensure!(
@@ -299,8 +313,7 @@ pub async fn start() -> Result<()> {
     journal.status.error = None;
     persist(journal).await?;
     tokio::spawn(async move {
-        let _guard = guard;
-        let result = run(&cd2, &pause_token).await;
+        let result = run(&db, &cd2, &pause_token).await;
         if let Err(error) = result {
             error!("存量视频迁移暂停：{error:#}");
             let mut state = STATE.lock().await;
@@ -335,7 +348,7 @@ async fn notify_upload(receipt: &mut FileReceipt) -> Result<()> {
     }
     Ok(())
 }
-async fn run(cd2: &Cd2Client, pause_token: &CancellationToken) -> Result<()> {
+async fn run(db: &DatabaseConnection, cd2: &Cd2Client, pause_token: &CancellationToken) -> Result<()> {
     loop {
         let item = {
             let mut state = STATE.lock().await;
@@ -356,6 +369,21 @@ async fn run(cd2: &Cd2Client, pause_token: &CancellationToken) -> Result<()> {
             persist(journal).await?;
             item
         };
+        // Release the shared library lock during pacing so regular updates can run.
+        let guard = tokio::select! {
+            guard = crate::task::DownloadTaskManager::get().library_lock() => guard,
+            _ = pause_token.cancelled() => continue,
+        };
+        let part = page::Entity::find()
+            .filter(page::Column::VideoId.eq(item.receipt.video_id))
+            .filter(page::Column::Cid.eq(item.receipt.cid))
+            .one(db)
+            .await?
+            .context("视频已从数据库移除，请重新预览迁移清单")?;
+        ensure!(
+            ((part.download_status >> 3) & 7) == crate::utils::status::STATUS_OK,
+            "视频下载状态已被重置，请重新预览迁移清单"
+        );
         ensure!(
             cd2.remote_path(&item.receipt.metadata_path)? == item.receipt.storage_path,
             "迁移目标路径已变化"
@@ -396,6 +424,7 @@ async fn run(cd2: &Cd2Client, pause_token: &CancellationToken) -> Result<()> {
             library::save(&receipt).await?;
             notify_upload(&mut receipt).await?;
         }
+        drop(guard);
         let (delay, flush) = {
             let mut state = STATE.lock().await;
             let journal = load(&mut state).await?;

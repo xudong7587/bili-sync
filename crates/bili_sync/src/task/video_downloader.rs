@@ -74,6 +74,9 @@ impl DownloadTaskManager {
             .try_lock()
             .context("下载或画质任务正在运行，请等待完成后重试")
     }
+    pub async fn library_lock(&'static self) -> tokio::sync::MutexGuard<'static, ()> {
+        self.cx.running.lock().await
+    }
 
     /// 手动执行一次下载任务
     pub async fn download_once(&self) -> Result<()> {

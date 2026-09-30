@@ -44,8 +44,8 @@ async fn plan_migration(
 ) -> Result<ApiResponse<crate::migration::Status>, ApiError> {
     Ok(ApiResponse::ok(crate::migration::plan(&db, options).await?))
 }
-async fn run_migration() -> Result<ApiResponse<bool>, ApiError> {
-    crate::migration::start().await?;
+async fn run_migration(Extension(db): Extension<DatabaseConnection>) -> Result<ApiResponse<bool>, ApiError> {
+    crate::migration::start(db).await?;
     Ok(ApiResponse::ok(true))
 }
 async fn pause_migration() -> Result<ApiResponse<bool>, ApiError> {

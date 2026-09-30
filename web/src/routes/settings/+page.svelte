@@ -22,7 +22,6 @@
 	import QrCodeIcon from '@lucide/svelte/icons/qr-code';
 	import api from '$lib/api';
 	import Cd2Connection from '$lib/components/cd2-connection.svelte';
-	import LibraryMigration from '$lib/components/library-migration.svelte';
 	import { toast } from 'svelte-sonner';
 	import { setBreadcrumb } from '$lib/stores/breadcrumb';
 	import type { Config, ApiError, Notifier, Credential, DanmakuUpdateMilestone } from '$lib/types';
@@ -1123,7 +1122,6 @@
 								负责上传视频和保存元数据，播放链接与播放服务由所选工具管理。
 							</div>
 						</div>
-						<LibraryMigration />
 					{/if}
 				</Tabs.Content>
 				<Tabs.Content value="appearance" class="mt-6 space-y-6">

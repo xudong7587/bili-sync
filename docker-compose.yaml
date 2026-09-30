@@ -2,7 +2,7 @@ services:
   bili-sync-rs:
     # 固定版本便于升级和回滚；新版本发布后再修改标签。
     # 希望跟随最新发布版本时，可将标签替换为 latest，并手动 pull 后重建。
-    image: ghcr.io/xudong7587/bili-sync:bili115-2026.09.28.1
+    image: ghcr.io/xudong7587/bili-sync:bili115-2026.09.30.1
     container_name: bili-sync-rs
     restart: unless-stopped
 

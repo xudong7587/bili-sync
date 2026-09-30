@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
 	import { page } from '$app/stores';
-	import { themes, applyTheme, getTheme } from '$lib/theme';
-	let selectedTheme = getTheme();
+	import AppearanceSettings from '$lib/components/appearance-settings.svelte';
 	$: section = $page.url.searchParams.get('section') || 'basic';
 	$: setBreadcrumb([{ label: section === 'cloud' ? '视频网盘分流' : '设置' }]);
 	import { Button } from '$lib/components/ui/button/index.js';
@@ -299,7 +298,9 @@
 		</div>
 	{/if}
 	<!-- 应用配置 -->
-	{#if loading}
+	{#if section === 'appearance'}
+		<AppearanceSettings />
+	{:else if loading}
 		<div class="flex items-center justify-center py-16">
 			<div class="space-y-2 text-center">
 				<div
@@ -1123,29 +1124,6 @@
 							</div>
 						</div>
 					{/if}
-				</Tabs.Content>
-				<Tabs.Content value="appearance" class="mt-6 space-y-6">
-					<div>
-						<h2 class="text-xl font-semibold">选择你的颜色</h2>
-						<p class="text-muted-foreground mt-2 text-sm">立即生效，保存在当前浏览器中。</p>
-					</div>
-					<div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
-						{#each themes as theme (theme.id)}
-							<button
-								class="flex items-center gap-3 rounded-xl border p-4 text-left transition-colors hover:bg-accent"
-								class:ring-2={selectedTheme === theme.id}
-								aria-pressed={selectedTheme === theme.id}
-								onclick={() => {
-									selectedTheme = theme.id;
-									applyTheme(theme.id);
-								}}
-							>
-								<span class="size-6 rounded-full" style:background={theme.color}></span><span
-									>{theme.name}</span
-								>
-							</button>
-						{/each}
-					</div>
 				</Tabs.Content>
 			</Tabs.Root>
 

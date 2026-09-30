@@ -1,0 +1,171 @@
+/* Svelte/shadcn adapter. Business states keep their semantic colors. */
+:root,
+[data-theme='dark'] {
+	--background: var(--sunny-bg);
+	--foreground: var(--sunny-text);
+	--card: var(--sunny-surface);
+	--card-foreground: var(--sunny-text);
+	--popover: var(--sunny-surface-strong);
+	--popover-foreground: var(--sunny-text);
+	--muted: var(--sunny-surface-2);
+	--muted-foreground: var(--sunny-muted);
+	--secondary: var(--sunny-surface-2);
+	--secondary-foreground: var(--sunny-text);
+	--accent: var(--sunny-accent-soft);
+	--accent-foreground: var(--sunny-text);
+	--brand: var(--sunny-accent);
+	--primary: var(--sunny-accent);
+	--primary-foreground: var(--sunny-accent-ink);
+	--border: var(--sunny-line);
+	--input: var(--sunny-line);
+	--ring: var(--sunny-accent);
+	--sidebar: var(--sunny-sidebar);
+	--sidebar-foreground: var(--sunny-text);
+	--sidebar-primary: var(--primary);
+	--sidebar-primary-foreground: var(--primary-foreground);
+	--sidebar-accent: var(--sunny-accent-soft);
+	--sidebar-accent-foreground: var(--sunny-text);
+	--sidebar-border: var(--sunny-line);
+	--sidebar-ring: var(--ring);
+	--ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
+[data-theme='dark'] {
+	--sunny-accent-ink: var(--accent-dark-ink, #17202e);
+}
+body {
+	background: var(--sunny-bg);
+}
+.appearance-surface {
+	background: var(--sunny-surface);
+}
+.appearance-surface-inner {
+	background: var(--sunny-surface-soft);
+}
+[data-material]:not([data-material='default']) [data-slot='sidebar-wrapper'] {
+	background: transparent;
+}
+[data-slot='sidebar-inner'],
+[data-sidebar='sidebar'][data-mobile='true'] {
+	background: var(--sunny-sidebar);
+}
+[data-material]:not([data-material='default']) [data-slot='sidebar-inset'] {
+	background: transparent;
+}
+[data-material]:not([data-material='default']) :is([data-slot='card'], #main .bg-card) {
+	background: var(--material-fill);
+	border-color: var(--material-edge);
+	box-shadow: var(--sunny-shadow-card);
+	backdrop-filter: var(--material-blur);
+}
+[data-material]:not([data-material='default']) :is([data-slot='card'], #main section.bg-card) {
+	border-radius: var(--material-radius);
+}
+[data-material]:not([data-material='default']) [data-slot='dialog-content'] {
+	background: var(--material-fill);
+	border-color: var(--material-edge);
+	box-shadow: var(--sunny-shadow-raised);
+	backdrop-filter: var(--material-blur);
+}
+[data-material]:not([data-material='default'])
+	:is(
+		[data-slot='input'],
+		[data-slot='textarea'],
+		[data-slot='select-trigger'],
+		[data-slot='button'][data-variant='outline'],
+		[data-slot='button'][data-variant='secondary']
+	) {
+	background: var(--material-control);
+	box-shadow: var(--material-control-shadow);
+	backdrop-filter: var(--material-blur);
+}
+[data-material]:not([data-material='default'])
+	:is([data-slot='input'], [data-slot='textarea'], [data-slot='select-trigger']):not(
+		:focus-visible
+	):not([aria-invalid='true']) {
+	border-color: var(--material-edge);
+}
+[data-material]:not([data-material='default']) [data-slot='button'][data-variant='default'] {
+	background-color: var(--primary);
+	background-image: linear-gradient(175deg, #ffffff0a, transparent 45%, #00000008);
+	box-shadow:
+		var(--material-control-shadow),
+		inset 0 1px 0 #ffffff35;
+}
+[data-material='paper'] [data-slot='button'][data-variant='default'] {
+	border-radius: 6px;
+	box-shadow:
+		inset 0 -2px 0 #00000012,
+		0 2px 0 #8b745218;
+}
+[data-material='soft'] [data-slot='button'][data-variant='default'] {
+	box-shadow:
+		3px 3px 9px #00000018,
+		-2px -2px 8px color-mix(in srgb, var(--sunny-surface-strong) 70%, transparent),
+		inset 0 1px 0 #ffffff35;
+}
+[data-material='outline'] [data-slot='button'][data-variant='default'] {
+	background-image: none;
+	box-shadow: 0 3px 0 color-mix(in srgb, var(--primary) 22%, transparent);
+}
+[data-material='satin'] [data-slot='button'][data-variant='default'] {
+	background-image: linear-gradient(165deg, #ffffff08, transparent 48%, #00000009 70%, transparent);
+}
+:is([data-material='glass'], [data-material='aurora'])
+	:is([data-slot='sidebar-inner'], [data-sidebar='sidebar'][data-mobile='true']) {
+	background: color-mix(in srgb, var(--sunny-sidebar) 46%, transparent);
+	backdrop-filter: var(--material-blur);
+	border-color: var(--material-edge);
+}
+[data-material='glass']
+	:is([data-slot='sidebar-inner'], [data-sidebar='sidebar'][data-mobile='true']) {
+	background: color-mix(in srgb, var(--sunny-sidebar) 28%, transparent);
+}
+[data-palette='multi']:not([data-material='glass']):not([data-material='aurora'])
+	[data-slot='sidebar-inner'] {
+	background:
+		radial-gradient(
+			ellipse at 0 0,
+			color-mix(in srgb, var(--appearance-secondary) 13%, transparent),
+			transparent 65%
+		),
+		var(--sunny-sidebar);
+}
+[data-slot='button'] {
+	transition:
+		transform 120ms var(--ease-out),
+		background-color 160ms var(--ease-out),
+		box-shadow 160ms var(--ease-out),
+		color 160ms var(--ease-out);
+}
+[data-slot='button']:not(:disabled):not([aria-disabled='true']):active {
+	transform: scale(0.97);
+}
+@media (prefers-reduced-motion: reduce) {
+	[data-slot='button'] {
+		transition: none;
+	}
+	[data-slot='button']:active {
+		transform: none;
+	}
+}
+@media (prefers-reduced-transparency: reduce) {
+	[data-material] :is([data-slot='sidebar-inner'], [data-sidebar='sidebar'][data-mobile='true']) {
+		background: var(--sunny-sidebar);
+		backdrop-filter: none;
+	}
+}
+@media (forced-colors: active) {
+	[data-slot='button'][data-variant='default'] {
+		background: ButtonFace;
+		color: ButtonText;
+		border: 1px solid ButtonText;
+	}
+	.appearance-control,
+	.appearance-surface,
+	.appearance-surface-inner {
+		background: Canvas;
+		color: CanvasText;
+		border-color: CanvasText;
+		box-shadow: none;
+	}
+}

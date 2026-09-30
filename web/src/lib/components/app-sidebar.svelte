@@ -88,7 +88,7 @@
 					{ title: '画质与视频处理', icon: FilePlayIcon, href: '/settings?section=filter' },
 					{ title: '弹幕', icon: SquareTerminalIcon, href: '/settings?section=danmaku' },
 					{ title: '通知与 Webhook', icon: BotIcon, href: '/settings?section=notifiers' },
-					{ title: '外观', icon: PaletteIcon, href: '/settings?section=appearance' },
+					{ title: '外观', icon: PaletteIcon, href: '/settings/appearance' },
 					{ title: '高级设置', icon: Settings2Icon, href: '/settings?section=advanced' }
 				]
 			}

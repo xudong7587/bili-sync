@@ -2,15 +2,21 @@
 	import '../app.css';
 	import LogDialog from '$lib/components/log-dialog.svelte';
 	import { onMount } from 'svelte';
-	import { applyTheme, getTheme } from '$lib/theme';
-	onMount(() => applyTheme(getTheme()));
+	import { initializeAppearance } from '$lib/theme';
+	onMount(initializeAppearance);
 	import AppSidebar from '$lib/components/app-sidebar.svelte';
 	import BreadCrumb from '$lib/components/bread-crumb.svelte';
 	import { Separator } from '$lib/components/ui/separator/index.js';
 	import { breadcrumbStore } from '$lib/stores/breadcrumb';
 	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
 	import { Toaster } from '$lib/components/ui/sonner/index.js';
-	import { ModeWatcher } from 'mode-watcher';
+	import { ModeWatcher, mode } from 'mode-watcher';
+	import '$lib/appearance/sunny.css';
+	import '$lib/appearance/host.css';
+	let { children } = $props();
+	$effect(() => {
+		if (mode.current) document.documentElement.dataset.theme = mode.current;
+	});
 </script>
 
 <ModeWatcher disableHeadScriptInjection />
@@ -27,11 +33,11 @@
 			<div class="ml-auto pr-5"><LogDialog /></div>
 		</header>
 		<div
-			class="min-w-0 w-full overflow-y-auto px-6 py-2"
+			class="min-w-0 w-full overflow-y-auto px-4 py-2 sm:px-6"
 			style="scrollbar-width: thin; scrollbar-gutter: stable !important;"
 			id="main"
 		>
-			<slot />
+			{@render children()}
 		</div>
 	</Sidebar.Inset>
 </Sidebar.Provider>

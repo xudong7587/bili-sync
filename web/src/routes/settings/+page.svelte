@@ -22,6 +22,7 @@
 	import QrCodeIcon from '@lucide/svelte/icons/qr-code';
 	import api from '$lib/api';
 	import Cd2Connection from '$lib/components/cd2-connection.svelte';
+	import LibraryMigration from '$lib/components/library-migration.svelte';
 	import { toast } from 'svelte-sonner';
 	import { setBreadcrumb } from '$lib/stores/breadcrumb';
 	import type { Config, ApiError, Notifier, Credential, DanmakuUpdateMilestone } from '$lib/types';
@@ -1086,7 +1087,7 @@
 								<div>
 									<h3 class="font-semibold">STRM 入库联动</h3>
 									<p class="mt-1 text-sm text-muted-foreground">
-										CD2 确认上传完成后，通知 MediaIndex 生成 STRM。
+										CD2 确认上传完成后，通过 Webhook 通知媒体管理器生成 STRM。
 									</p>
 								</div>
 								<Switch
@@ -1096,10 +1097,10 @@
 							</div>
 							{#if formData.media_index_webhook_enabled}
 								<div class="space-y-2">
-									<Label for="media-index-url">MediaIndex Webhook URL</Label><Input
+									<Label for="media-index-url">入库 Webhook URL</Label><Input
 										id="media-index-url"
 										bind:value={formData.media_index_webhook_url}
-										placeholder="粘贴 MediaIndex 生成的完整 URL"
+										placeholder="粘贴 MediaIndex 或兼容接收器的完整 URL"
 									/>
 								</div>
 								<div class="space-y-2">
@@ -1122,6 +1123,7 @@
 								负责上传视频和保存元数据，播放链接与播放服务由所选工具管理。
 							</div>
 						</div>
+						<LibraryMigration />
 					{/if}
 				</Tabs.Content>
 				<Tabs.Content value="appearance" class="mt-6 space-y-6">

@@ -213,6 +213,8 @@ pub struct DashBoardResponse {
 #[derive(Serialize, Clone, Copy)]
 pub struct SysInfo {
     pub download_bytes: u64,
+    pub upload_bytes: u64,
+    pub cloud_upload_bytes: u64,
     pub timestamp: i64,
     pub total_memory: u64,
     pub used_memory: u64,

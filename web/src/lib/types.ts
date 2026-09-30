@@ -422,6 +422,8 @@ export interface DashBoardResponse {
 
 export interface SysInfo {
 	download_bytes: number;
+	upload_bytes: number;
+	cloud_upload_bytes: number;
 	timestamp: number;
 	total_memory: number;
 	used_memory: number;
@@ -431,6 +433,31 @@ export interface SysInfo {
 	total_disk: number;
 	used_disk: number;
 	available_disk: number;
+}
+
+export interface MigrationOptions {
+	source_root: string;
+	min_interval: number;
+	max_interval: number;
+	batch_size: number;
+	batch_cooldown: number;
+}
+export interface MigrationStatus {
+	samples: { source: string; target: string }[];
+	phase: string;
+	total: number;
+	completed: number;
+	total_bytes: number;
+	completed_bytes: number;
+	skipped_cloud: number;
+	skipped_missing: number;
+	skipped_invalid: number;
+	current_file: string;
+	destination: string;
+	error: string | null;
+	notification_error: string | null;
+	options: MigrationOptions | null;
+	updated_at: string;
 }
 
 export interface TaskStatus {

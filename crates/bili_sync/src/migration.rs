@@ -7,14 +7,14 @@ use anyhow::{Context, Result, ensure};
 use bili_sync_entity::page;
 use sea_orm::{DatabaseConnection, EntityTrait};
 use serde::{Deserialize, Serialize};
-use tokio::sync::{Mutex, Notify};
+use tokio::sync::Mutex;
+use tokio_util::sync::CancellationToken;
 
 use crate::cd2::Cd2Client;
 use crate::config::{CONFIG_DIR, VersionedConfig};
 use crate::library::{self, FileReceipt, SavedQuality};
 
 static STATE: Mutex<Option<Journal>> = Mutex::const_new(None);
-static WAKE: Notify = Notify::const_new();
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Options {
@@ -85,6 +85,8 @@ struct Journal {
     status: Status,
     items: Vec<Item>,
     cd2_url: String,
+    #[serde(skip)]
+    pause_token: Option<CancellationToken>,
 }
 fn journal_path() -> PathBuf {
     CONFIG_DIR.join("local-video-migration.json")
@@ -291,12 +293,14 @@ pub async fn start() -> Result<()> {
         "CD2 目标已变化，请恢复预览时的地址和目录后继续"
     );
     let cd2 = Cd2Client::connection(&config)?.context("CD2 未配置")?;
+    let pause_token = CancellationToken::new();
+    journal.pause_token = Some(pause_token.clone());
     journal.status.phase = "running".into();
     journal.status.error = None;
     persist(journal).await?;
     tokio::spawn(async move {
         let _guard = guard;
-        let result = run(&cd2).await;
+        let result = run(&cd2, &pause_token).await;
         if let Err(error) = result {
             error!("存量视频迁移暂停：{error:#}");
             let mut state = STATE.lock().await;
@@ -317,7 +321,9 @@ pub async fn pause() -> Result<()> {
     if journal.status.phase == "running" {
         journal.status.phase = "pausing".into();
         persist(journal).await?;
-        WAKE.notify_one();
+        if let Some(token) = &journal.pause_token {
+            token.cancel();
+        }
     }
     Ok(())
 }
@@ -329,7 +335,7 @@ async fn notify_upload(receipt: &mut FileReceipt) -> Result<()> {
     }
     Ok(())
 }
-async fn run(cd2: &Cd2Client) -> Result<()> {
+async fn run(cd2: &Cd2Client, pause_token: &CancellationToken) -> Result<()> {
     loop {
         let item = {
             let mut state = STATE.lock().await;
@@ -410,7 +416,7 @@ async fn run(cd2: &Cd2Client) -> Result<()> {
         if current.phase == "running" && current.completed < current.total {
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs(delay)) => {},
-                _ = WAKE.notified() => {},
+                _ = pause_token.cancelled() => {},
             }
         }
     }
@@ -529,6 +535,7 @@ mod tests {
             },
             items: vec![item.clone(), item],
             cd2_url: "http://cd2:19798/".into(),
+            ..Default::default()
         };
         tokio::fs::write(file.file_path(), serde_json::to_vec(&journal).unwrap())
             .await

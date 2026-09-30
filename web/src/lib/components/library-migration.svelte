@@ -18,6 +18,7 @@
 	});
 	const active = $derived(job?.phase === 'running' || job?.phase === 'pausing');
 	const unfinished = $derived(!!job && job.completed < job.total);
+	const changed = $derived(!!job?.options && JSON.stringify(options) !== JSON.stringify(job.options));
 	const labels: Record<string, string> = {
 		ready: '等待开始',
 		running: '迁移中',
@@ -178,7 +179,7 @@
 		<Button variant="outline" onclick={() => action('plan')} disabled={busy || active}
 			>{unfinished ? '重新预览' : '预览待迁移视频'}</Button
 		>
-		{#if unfinished && !active}<Button onclick={() => action('run')} disabled={busy}
+		{#if unfinished && !active}<Button onclick={() => action('run')} disabled={busy || changed}
 				>{job?.phase === 'ready' ? '开始上传' : '继续迁移'}</Button
 			>{/if}
 		{#if active}<Button
@@ -187,6 +188,7 @@
 				disabled={busy || job?.phase === 'pausing'}>暂停迁移</Button
 			>{/if}
 	</div>
+	{#if changed && unfinished}<p class="text-xs text-muted-foreground">设置已修改，请重新预览后继续。</p>{/if}
 	<p class="text-xs leading-relaxed text-muted-foreground">
 		暂停会等待当前文件上传确认，随后保存进度；重启后手动继续。修改频率或根目录后点击「重新预览」，已确认的网盘视频会跳过。每批新迁移的视频确认存好后合并一次完成事件，MediaIndex
 		或兼容的 MP 接收器负责生成 STRM。MP 插件需支持此 webhook
